@@ -340,9 +340,19 @@ export default function HomePage() {
           toast({
             description: "좋아요가 취소되었습니다.",
           })
+          // 좋아요 목록 다시 불러오기
+          fetchLikedMenus()
+        } else {
+          const result = await response.json()
+          throw new Error(result.error)
         }
       } catch (error) {
         console.error('Remove like error:', error)
+        toast({
+          title: "오류",
+          description: "좋아요 취소 중 오류가 발생했습니다.",
+          variant: "destructive",
+        })
       }
     } else {
       // 좋아요 추가 - meal_records 없이 직접 저장
@@ -375,9 +385,13 @@ export default function HomePage() {
           toast({
             description: "좋아요 목록에 추가되었습니다.",
           })
+          // 좋아요 목록 다시 불러오기
+          fetchLikedMenus()
         } else {
           // 이미 좋아요한 경우
           if (result.error?.includes('이미')) {
+            // 상태 동기화
+            setLikedMenuNames(prev => new Set(prev).add(menu.name))
             toast({
               description: result.error,
             })
