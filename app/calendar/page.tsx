@@ -48,7 +48,7 @@ export default function CalendarPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [meals, setMeals] = useState<MealRecord[]>([])
   const [allMeals, setAllMeals] = useState<MealRecord[]>([])
-  const [likedMealIds, setLikedMealIds] = useState<Set<number>>(new Set())
+  const [likedMenuNames, setLikedMenuNames] = useState<Set<string>>(new Set())
   const [selectedDayMeals, setSelectedDayMeals] = useState<MealRecord[]>([])
   const [selectedDayDate, setSelectedDayDate] = useState<Date | null>(null)
 
@@ -145,30 +145,30 @@ export default function CalendarPage() {
       console.log(`[캘린더] 좋아요 데이터 로드: ${result.data?.length || 0}개 (${(endTime - startTime).toFixed(0)}ms)`)
 
       if (response.ok && result.success) {
-        const likedIds = new Set(result.data.map((item: any) => item.id))
-        setLikedMealIds(likedIds)
+        const likedNames = new Set(result.data.map((item: any) => item.menu_name))
+        setLikedMenuNames(likedNames)
       }
     } catch (error) {
       console.error('Failed to fetch liked meals:', error)
     }
   }
 
-  const toggleLike = async (mealId: number) => {
+  const toggleLike = async (meal: MealRecord) => {
     if (!user) return
 
     try {
-      const isLiked = likedMealIds.has(mealId)
+      const isLiked = likedMenuNames.has(meal.menu_name)
 
       if (isLiked) {
         // 좋아요 취소
-        const response = await fetch(`/api/liked-meals?userId=${user.id}&mealRecordId=${mealId}`, {
+        const response = await fetch(`/api/liked-meals?userId=${user.id}&menuName=${encodeURIComponent(meal.menu_name)}`, {
           method: 'DELETE',
         })
 
         if (response.ok) {
-          setLikedMealIds(prev => {
+          setLikedMenuNames(prev => {
             const newSet = new Set(prev)
-            newSet.delete(mealId)
+            newSet.delete(meal.menu_name)
             return newSet
           })
           toast({
@@ -184,12 +184,17 @@ export default function CalendarPage() {
           },
           body: JSON.stringify({
             userId: user.id,
-            mealRecordId: mealId,
+            menuName: meal.menu_name,
+            calories: meal.calories,
+            carbs: meal.carbs,
+            protein: meal.protein,
+            fat: meal.fat,
+            price: meal.cost,
           }),
         })
 
         if (response.ok) {
-          setLikedMealIds(prev => new Set(prev).add(mealId))
+          setLikedMenuNames(prev => new Set(prev).add(meal.menu_name))
           toast({
             description: "좋아요 목록에 추가되었습니다.",
           })
@@ -574,13 +579,13 @@ export default function CalendarPage() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    toggleLike(record.id)
+                                    toggleLike(record)
                                   }}
                                   className="shrink-0 transition-colors"
                                 >
                                   <Heart
                                     className={`h-3.5 w-3.5 ${
-                                      likedMealIds.has(record.id)
+                                      likedMenuNames.has(record.menu_name)
                                         ? "fill-red-500 text-red-500"
                                         : "text-muted-foreground hover:text-red-400"
                                     }`}
@@ -889,12 +894,12 @@ export default function CalendarPage() {
                                 </div>
                               </div>
                               <button
-                                onClick={() => toggleLike(meal.id)}
+                                onClick={() => toggleLike(meal)}
                                 className="shrink-0 transition-colors p-1"
                               >
                                 <Heart
                                   className={`h-5 w-5 ${
-                                    likedMealIds.has(meal.id)
+                                    likedMenuNames.has(meal.menu_name)
                                       ? "fill-red-500 text-red-500"
                                       : "text-muted-foreground hover:text-red-400"
                                   }`}
@@ -1241,12 +1246,12 @@ export default function CalendarPage() {
                           </div>
                         </div>
                         <button
-                          onClick={() => toggleLike(meal.id)}
+                          onClick={() => toggleLike(meal)}
                           className="shrink-0 transition-colors p-1"
                         >
                           <Heart
                             className={`h-5 w-5 ${
-                              likedMealIds.has(meal.id)
+                              likedMenuNames.has(meal.menu_name)
                                 ? "fill-red-500 text-red-500"
                                 : "text-muted-foreground hover:text-red-400"
                             }`}
