@@ -78,8 +78,13 @@ export default function HomePage() {
     return cleanupAllTasks
   }, [pathname, recommendationController])
 
+  // 로그인 직후 초기 로딩 (한 번만 실행)
+  const isInitialMount = useRef(true)
+
   useEffect(() => {
-    if (user) {
+    if (user && currentMode && isInitialMount.current) {
+      isInitialMount.current = false
+
       // 빠른 추천 TOP3 즉시 로드 (최우선)
       fetchPopularMenus()
 
@@ -88,9 +93,13 @@ export default function HomePage() {
 
       // AI 추천 상태 즉시 확인 (로그인 페이지에서 시작한 추천 확인)
       console.log('✅ User logged in, checking AI recommendation status...')
-      checkAiRecommendationStatus()
+
+      // 약간의 지연 후 상태 확인 (currentMode가 완전히 초기화된 후)
+      setTimeout(() => {
+        checkAiRecommendationStatus()
+      }, 100)
     }
-  }, [user])
+  }, [user, currentMode])
 
   // AI 추천 상태 변경 감지 (디버깅용)
   useEffect(() => {
@@ -98,25 +107,33 @@ export default function HomePage() {
   }, [aiRecommendationStatus])
 
   // 모드 변경 시 AI 추천 상태 재확인
+  const lastModeRef = useRef<string | null>(null)
+
   useEffect(() => {
     if (user && currentMode) {
-      console.log(`🔄 [AI 추천] 모드 변경됨: ${currentMode.id}`)
+      // 이전 모드가 있고, 현재 모드와 다를 때만 실행 (초기 로딩 시 제외)
+      if (lastModeRef.current !== null && lastModeRef.current !== currentMode.id) {
+        console.log(`🔄 [AI 추천] 모드 변경됨: ${lastModeRef.current} -> ${currentMode.id}`)
 
-      // 기존 폴링 중단
-      if (pollIntervalRef.current) {
-        console.log('🛑 [AI 추천] 기존 폴링 중단')
-        clearInterval(pollIntervalRef.current)
-        pollIntervalRef.current = null
+        // 기존 폴링 중단
+        if (pollIntervalRef.current) {
+          console.log('🛑 [AI 추천] 기존 폴링 중단')
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        pollAttemptsRef.current = 0
+
+        // 상태 초기화 후 재확인
+        setAiRecommendationStatus('none')
+
+        // 짧은 딜레이 후 상태 확인 (상태 초기화가 완료된 후)
+        setTimeout(() => {
+          checkAiRecommendationStatus()
+        }, 100)
       }
-      pollAttemptsRef.current = 0
 
-      // 상태 초기화 후 재확인
-      setAiRecommendationStatus('none')
-
-      // 짧은 딜레이 후 상태 확인 (상태 초기화가 완료된 후)
-      setTimeout(() => {
-        checkAiRecommendationStatus()
-      }, 100)
+      // 현재 모드 저장
+      lastModeRef.current = currentMode.id
     }
   }, [currentMode, user])
 
@@ -231,7 +248,7 @@ export default function HomePage() {
     console.log('✅ Popular menus loaded (fixed TOP3)')
   }
 
-  const pollForCacheReady = useCallback(() => {
+  const pollForCacheReady = () => {
     if (!user || !isMountedRef.current) return
 
     // 이미 폴링 중이면 기존 폴링 중단 후 새로 시작
@@ -314,9 +331,9 @@ export default function HomePage() {
 
     // setInterval로 정기적으로 체크
     pollIntervalRef.current = setInterval(checkStatus, 1000)
-  }, [user, currentMode])
+  }
 
-  const checkAiRecommendationStatus = useCallback(() => {
+  const checkAiRecommendationStatus = () => {
     if (!user || !isMountedRef.current) return
 
     console.log(`🔍 [AI 추천] 상태 확인 시작 - mode: ${currentMode.id}`)
@@ -360,7 +377,7 @@ export default function HomePage() {
         }
         console.error('❌ [AI 추천] 상태 확인 실패:', error)
       })
-  }, [user, currentMode, pollForCacheReady])
+  }
 
   const fetchLikedMenus = () => {
     if (!user || !isMountedRef.current) return
