@@ -154,9 +154,9 @@ export async function POST(request: NextRequest) {
 
     // 5. Claude에게 분석 요청
     const modeDescriptions: Record<string, string> = {
-      budget: '가성비 중심 - 저렴하면서도 만족도 높은 메뉴',
-      healthy: '영양 중심 - 단백질이 높고 균형잡힌 영양소',
-      quick: '배달 속도 중심 - 빠르게 배달되는 메뉴',
+      budget: '지갑 모드 (Budget Saver) - 최우선 순위: 메뉴의 가격, 사용자의 남은 예산 대비 식비 적합성. 저렴한 가격일수록, 남은 예산 내에서 안정적인 선택일수록 고득점.',
+      healthy: '득근 모드 (Muscle Gain) - 최우선 순위: 단백질 함량, 칼로리 대비 영양 성분 밸런스. 고단백 위주의 메뉴, 최근 섭취한 영양 성분 중 부족한 성분을 보완하는 메뉴일수록 고득점.',
+      quick: '간편 모드 (Quick Delivery) - 최우선 순위: 배달 소요 시간. 배달 소요 시간이 짧을수록 고득점.',
     }
 
     const prompt = `당신은 음식 추천 전문가입니다. 사용자의 선호도와 식습관을 분석하여 최적의 메뉴를 추천해주세요.
@@ -167,7 +167,6 @@ export async function POST(request: NextRequest) {
 - 남은 예산: ${remainingBudget.toLocaleString()}원
 - 좋아하는 음식 카테고리: ${preferences.favorite_categories.length > 0 ? preferences.favorite_categories.join(', ') : '없음'}
 - 기피 식재료: ${preferences.disliked_ingredients.length > 0 ? preferences.disliked_ingredients.join(', ') : '없음'}
-- 추천 우선순위: 가격(${preferences.priority_price}%), 영양(${preferences.priority_nutrition}%), 배달시간(${preferences.priority_delivery}%)
 
 **좋아요 누른 음식 목록 (선호하는 메뉴):**
 ${likedMeals.length > 0 ? likedMeals.map(m => `- ${m.menu_name} (${m.calories}kcal, ${m.cost?.toLocaleString()}원)`).join('\n') : '없음'}
@@ -175,7 +174,8 @@ ${likedMeals.length > 0 ? likedMeals.map(m => `- ${m.menu_name} (${m.calories}kc
 **최근 7일간 식사 기록:**
 ${recentMeals.length > 0 ? recentMeals.map(m => `- ${m.menu_name} (${m.calories}kcal, ${m.cost?.toLocaleString()}원)`).join('\n') : '기록 없음'}
 
-**현재 추천 모드:** ${currentMode} - ${modeDescriptions[currentMode]}
+**현재 추천 모드:** ${currentMode}
+${modeDescriptions[currentMode]}
 
 **추천 가능한 메뉴 목록:**
 ${menusWithRestaurants.map(m => `
@@ -193,20 +193,44 @@ ${menusWithRestaurants.map(m => `
 `).join('\n')}
 
 **채점 기준:**
-1. 사용자의 우선순위 가중치를 반영하여 점수 계산
-2. 가격: 예산 대비 적절성 (남은 예산 고려)
-3. 영양: 단백질 함량, 칼로리 균형
-4. 배달시간: 빠른 배달 가능 여부
-5. 선호도 매칭:
+${currentMode === 'budget' ? `
+1. **가격 (최우선)**: 메뉴 가격이 저렴할수록 고득점
+   - 남은 예산(${remainingBudget.toLocaleString()}원) 대비 부담 없는 가격
+   - 배달비 포함 총 비용 고려
+2. 선호도 매칭:
+   - 좋아요 누른 음식과 유사한 메뉴에 가산점
    - 좋아하는 카테고리와 일치하면 가산점
-   - 좋아요 누른 음식과 유사한 메뉴에 높은 가산점 (카테고리, 칼로리, 가격대가 비슷한 경우)
    - 기피 식재료가 포함된 메뉴는 큰 감점
-6. 다양성: 최근 7일간 먹지 않은 메뉴에 가산점
-7. 현재 모드에 따른 가중치 조정
+3. 다양성: 최근 7일간 먹지 않은 메뉴에 가산점
+4. 영양과 배달시간은 참고 사항으로만 고려
+` : currentMode === 'healthy' ? `
+1. **단백질 함량 (최우선)**: 단백질이 높을수록 고득점
+   - 고단백 메뉴 우선 추천
+   - 칼로리 대비 영양 밸런스 (탄수화물, 지방 비율)
+2. **영양 보완**: 최근 식사 기록의 영양 성분 분석
+   - 부족한 영양소를 보완하는 메뉴 우대
+3. 선호도 매칭:
+   - 좋아요 누른 음식과 유사한 메뉴에 가산점
+   - 좋아하는 카테고리와 일치하면 가산점
+   - 기피 식재료가 포함된 메뉴는 큰 감점
+4. 다양성: 최근 7일간 먹지 않은 메뉴에 가산점
+5. 가격과 배달시간은 참고 사항으로만 고려
+` : `
+1. **배달 소요 시간 (최우선)**: 배달시간이 짧을수록 고득점
+   - 30분 이내 배달 가능한 메뉴 우선
+   - 빠른 배달이 핵심 기준
+2. 선호도 매칭:
+   - 좋아요 누른 음식과 유사한 메뉴에 가산점
+   - 좋아하는 카테고리와 일치하면 가산점
+   - 기피 식재료가 포함된 메뉴는 큰 감점
+3. 다양성: 최근 7일간 먹지 않은 메뉴에 가산점
+4. 가격과 영양은 참고 사항으로만 고려
+`}
 
 **중요:**
 - 좋아요 누른 음식 목록을 중요하게 고려하세요. 사용자가 명시적으로 좋아한다고 표시한 메뉴입니다.
 - 좋아요 목록의 메뉴와 비슷한 특성(카테고리, 가격대, 영양 구성)을 가진 메뉴를 우선 추천하세요.
+- 현재 모드의 최우선 순위를 가장 중요하게 반영하여 점수를 부여하세요.
 
 각 메뉴에 대해 0-100점 사이의 점수를 부여하고, 점수가 높은 상위 3개 메뉴를 추천해주세요.
 
