@@ -67,7 +67,8 @@ export default function GamePage() {
   const animationRef = useRef<number | null>(null)
 
   const [boxes, setBoxes] = useState<{ id: number; menu: MenuItem; opened: boolean }[]>([])
-  const [boxPhase, setBoxPhase] = useState<"idle" | "ready" | "opened">("idle")
+  const [boxPhase, setBoxPhase] = useState<"idle" | "ready" | "opening" | "opened">("idle")
+  const [selectedBoxId, setSelectedBoxId] = useState<number | null>(null)
 
   // 최근 7일간 먹은 음식 중 3일 이내에 먹지 않은 음식 필터링
   useEffect(() => {
@@ -389,13 +390,23 @@ export default function GamePage() {
   const openBox = (id: number) => {
     if (boxPhase !== "ready") return
 
-    setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, opened: true } : b)))
+    setSelectedBoxId(id)
+    setBoxPhase("opening")
 
-    const selected = boxes.find((b) => b.id === id)
-    if (selected) {
-      setResult(selected.menu)
-      setBoxPhase("opened")
-    }
+    // 상자가 가운데로 이동하는 시간
+    setTimeout(() => {
+      setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, opened: true } : b)))
+
+      const selected = boxes.find((b) => b.id === id)
+      if (selected) {
+        setResult(selected.menu)
+
+        // 이펙트 표시 후 완료 상태로 전환
+        setTimeout(() => {
+          setBoxPhase("opened")
+        }, 800)
+      }
+    }, 600)
   }
 
   const resetGame = () => {
@@ -411,6 +422,7 @@ export default function GamePage() {
     setFallingMenu(null)
     setBoxPhase("idle")
     setBoxes([])
+    setSelectedBoxId(null)
   }
 
   const rouletteColors = [
@@ -453,16 +465,64 @@ export default function GamePage() {
     return "border-t-pink-500"
   }
 
-  const getTextSize = (text: string, maxWidth = 50) => {
-    // 글자 수에 따른 동적 크기 계산
-    const charCount = text.length
-    if (charCount <= 2) return 12
-    if (charCount <= 3) return 10
-    if (charCount <= 4) return 9
-    if (charCount <= 5) return 8
-    if (charCount <= 6) return 7
-    if (charCount <= 7) return 6
-    return 5
+  const splitTextForRoulette = (text: string) => {
+    const length = text.length
+
+    // 6자 이하는 한 줄
+    if (length <= 6) {
+      return [text]
+    }
+
+    // 띄어쓰기가 있으면 띄어쓰기 기준으로 분할
+    if (text.includes(' ')) {
+      const words = text.split(' ')
+
+      // 단어가 2개면 그대로 반환
+      if (words.length === 2) {
+        return words
+      }
+
+      // 단어가 3개 이상이면 적절히 2-3줄로 분할
+      if (words.length >= 3) {
+        const lines: string[] = []
+        let currentLine = ''
+
+        for (let i = 0; i < words.length; i++) {
+          const word = words[i]
+          const testLine = currentLine ? `${currentLine} ${word}` : word
+
+          // 현재 줄에 단어를 추가했을 때 6자를 넘으면 새 줄로
+          if (testLine.length > 6 && currentLine) {
+            lines.push(currentLine)
+            currentLine = word
+          } else {
+            currentLine = testLine
+          }
+        }
+
+        if (currentLine) {
+          lines.push(currentLine)
+        }
+
+        return lines.length > 0 ? lines : [text]
+      }
+    }
+
+    // 띄어쓰기 없으면 글자 수로 분할
+    // 7-9자는 2줄로 균등 분할
+    if (length <= 9) {
+      const mid = Math.floor(length / 2)
+      return [text.slice(0, mid), text.slice(mid)]
+    }
+
+    // 10자 이상은 3줄로 분할
+    const third = Math.floor(length / 3)
+    const twoThird = third * 2
+    return [
+      text.slice(0, third),
+      text.slice(third, twoThird),
+      text.slice(twoThird)
+    ]
   }
 
   return (
@@ -616,23 +676,36 @@ export default function GamePage() {
                       const bgColor = rouletteColors[index % rouletteColors.length]
 
                       const displayName = item.name
-                      const fontSize = getTextSize(displayName)
+                      const fontSize = 8  // 통일된 폰트 크기
+                      const lines = splitTextForRoulette(displayName)
+                      const lineHeight = fontSize * 1.6  // 줄 간격
+
+                      const rotationAngle = (startAngle + endAngle) / 2 + 90
 
                       return (
                         <g key={item.id}>
                           <path d={pathD} fill={bgColor} stroke="#FF6B00" strokeWidth="2" />
-                          <text
-                            x={textX}
-                            y={textY}
-                            fill="#5C4033"
-                            fontSize={fontSize}
-                            fontWeight="bold"
-                            textAnchor="middle"
-                            dominantBaseline="middle"
-                            transform={`rotate(${(startAngle + endAngle) / 2 + 90}, ${textX}, ${textY})`}
-                          >
-                            {displayName}
-                          </text>
+                          <g transform={`rotate(${rotationAngle}, ${textX}, ${textY})`}>
+                            {lines.map((line, lineIndex) => {
+                              // 여러 줄인 경우 y 위치 조정 (중앙 정렬)
+                              const totalHeight = (lines.length - 1) * lineHeight
+                              const offsetY = lineIndex * lineHeight - totalHeight / 2
+                              return (
+                                <text
+                                  key={lineIndex}
+                                  x={textX}
+                                  y={textY + offsetY}
+                                  fill="#5C4033"
+                                  fontSize={fontSize}
+                                  fontWeight="bold"
+                                  textAnchor="middle"
+                                  dominantBaseline="middle"
+                                >
+                                  {line}
+                                </text>
+                              )
+                            })}
+                          </g>
                         </g>
                       )
                     })}
@@ -1004,40 +1077,70 @@ export default function GamePage() {
             <CardContent className="py-8">
               <div className="flex flex-col items-center gap-6">
                 <div className="relative h-64 w-64">
-                  <div className="grid grid-cols-3 gap-2 p-2">
+                  <div className="grid grid-cols-3 gap-1.5 p-1">
                     {boxes.map((box, i) => (
                       <div
                         key={box.id}
                         className={cn(
-                          "relative cursor-pointer transition-all duration-300",
-                          box.opened ? "scale-95" : "hover:scale-105",
+                          "relative cursor-pointer transition-all duration-500",
+                          selectedBoxId === box.id && boxPhase === "opening"
+                            ? "fixed z-50 !left-1/2 !top-1/2 -translate-x-1/2 -translate-y-1/2 scale-150"
+                            : box.opened
+                              ? "scale-95 opacity-50"
+                              : "hover:scale-105",
                         )}
+                        style={
+                          selectedBoxId === box.id && boxPhase === "opening"
+                            ? {
+                                position: "fixed",
+                                zIndex: 50,
+                              }
+                            : {}
+                        }
                         onClick={() => openBox(box.id)}
                       >
                         {/* 도시락 박스 */}
                         <div
                           className={cn(
-                            "w-16 h-14 rounded-lg shadow-lg overflow-hidden bg-gradient-to-br",
+                            "w-20 h-24 rounded-lg shadow-lg overflow-hidden bg-gradient-to-br relative",
                             boxColors[i % boxColors.length],
                           )}
                         >
                           {/* 뚜껑 */}
                           <div
                             className={cn(
-                              "absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-white/30 to-transparent rounded-t-lg transition-transform duration-500 origin-bottom",
-                              box.opened && "-translate-y-full opacity-0",
+                              "absolute top-0 left-0 right-0 h-8 bg-gradient-to-b from-white/30 to-transparent rounded-t-lg transition-all duration-700 origin-bottom",
+                              box.opened && "-translate-y-full -rotate-12 opacity-0",
                             )}
                           />
                           {/* 리본 */}
                           <div className="absolute top-1/2 left-0 right-0 h-2 bg-white/40 -translate-y-1/2" />
-                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white/50" />
+                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-white/50" />
                         </div>
+
+                        {/* 반짝이는 파티클 이펙트 */}
+                        {selectedBoxId === box.id && box.opened && (
+                          <div className="absolute inset-0 pointer-events-none">
+                            {[...Array(12)].map((_, i) => (
+                              <div
+                                key={i}
+                                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                                style={{
+                                  animation: `sparkle-${i % 4} 0.8s ease-out forwards`,
+                                  animationDelay: `${i * 0.05}s`,
+                                }}
+                              >
+                                <div className="w-1 h-1 bg-yellow-400 rounded-full shadow-lg shadow-yellow-400" />
+                              </div>
+                            ))}
+                          </div>
+                        )}
 
                         {/* 메뉴 표시 */}
                         {box.opened && (
-                          <div className="absolute inset-0 flex items-center justify-center animate-in fade-in zoom-in duration-300">
-                            <div className="bg-white px-2 py-1 rounded shadow-lg">
-                              <p className="text-[10px] font-bold text-foreground text-center">{box.menu.name}</p>
+                          <div className="absolute inset-0 flex items-center justify-center animate-in fade-in zoom-in duration-500">
+                            <div className="bg-white px-3 py-2 rounded-lg shadow-xl border-2 border-yellow-400">
+                              <p className="text-sm font-bold text-foreground text-center">{box.menu.name}</p>
                             </div>
                           </div>
                         )}
@@ -1050,26 +1153,34 @@ export default function GamePage() {
                       <p className="text-muted-foreground text-sm">시작 버튼을 눌러주세요!</p>
                     </div>
                   )}
+
+                  {/* 배경 오버레이 */}
+                  {selectedBoxId !== null && boxPhase === "opening" && (
+                    <div className="fixed inset-0 bg-black/50 z-40 animate-in fade-in duration-300" />
+                  )}
                 </div>
 
                 <p className="text-sm text-muted-foreground text-center">
                   {boxPhase === "idle" && "도시락 상자를 열어 메뉴를 확인하세요!"}
                   {boxPhase === "ready" && "도시락 상자 하나를 선택해주세요!"}
+                  {boxPhase === "opening" && "상자를 여는 중..."}
                   {boxPhase === "opened" && result && `${result.name}(이)가 나왔어요!`}
                 </p>
 
                 <Button
                   onClick={startBoxGame}
-                  disabled={boxPhase === "ready"}
+                  disabled={boxPhase === "ready" || boxPhase === "opening"}
                   size="lg"
                   className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90 px-8 rounded-2xl"
                 >
                   <Package className="h-5 w-5" />
                   {boxPhase === "ready"
                     ? "도시락을 선택해주세요!"
-                    : boxPhase === "opened"
-                      ? "다시 하기"
-                      : "도시락 게임 시작!"}
+                    : boxPhase === "opening"
+                      ? "여는 중..."
+                      : boxPhase === "opened"
+                        ? "다시 하기"
+                        : "도시락 게임 시작!"}
                 </Button>
               </div>
             </CardContent>
@@ -1139,6 +1250,46 @@ export default function GamePage() {
         @keyframes particle-7 {
           to {
             transform: translate(0px, 25px);
+            opacity: 0;
+          }
+        }
+        @keyframes sparkle-0 {
+          0% {
+            transform: translate(-50%, -50%) scale(0);
+            opacity: 1;
+          }
+          100% {
+            transform: translate(calc(-50% - 40px), calc(-50% - 40px)) scale(1);
+            opacity: 0;
+          }
+        }
+        @keyframes sparkle-1 {
+          0% {
+            transform: translate(-50%, -50%) scale(0);
+            opacity: 1;
+          }
+          100% {
+            transform: translate(calc(-50% + 40px), calc(-50% - 40px)) scale(1);
+            opacity: 0;
+          }
+        }
+        @keyframes sparkle-2 {
+          0% {
+            transform: translate(-50%, -50%) scale(0);
+            opacity: 1;
+          }
+          100% {
+            transform: translate(calc(-50% - 40px), calc(-50% + 40px)) scale(1);
+            opacity: 0;
+          }
+        }
+        @keyframes sparkle-3 {
+          0% {
+            transform: translate(-50%, -50%) scale(0);
+            opacity: 1;
+          }
+          100% {
+            transform: translate(calc(-50% + 40px), calc(-50% + 40px)) scale(1);
             opacity: 0;
           }
         }

@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
   "carbs": 예상 탄수화물 그램 (숫자만),
   "fat": 예상 지방 그램 (숫자만),
   "estimated_price": 예상 가격 (원 단위 숫자만, 한국의 일반적인 음식 가격 기준),
+  "accuracy": 분석 정확도 (0-100 사이의 숫자, 음식 식별의 확신도),
   "description": "음식에 대한 간단한 설명과 영양 코멘트 (1-2문장, 한글)"
 }
 

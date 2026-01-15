@@ -16,14 +16,22 @@ interface MenuCardProps {
   onSelect?: (menu: MenuItem) => void
   mode?: "budget" | "healthy" | "quick" | "monthly"
   isLiked?: boolean
-  onLike?: (menu: MenuItem, isCurrentlyLiked: boolean) => void
+  onLike?: (menu: MenuItem, isCurrentlyLiked: boolean) => Promise<void>
 }
 
 export function MenuCard({ menu, rank, onSelect, mode = "budget", isLiked = false, onLike }: MenuCardProps) {
   const [showSidebar, setShowSidebar] = useState(false)
+  const [isLikeLoading, setIsLikeLoading] = useState(false)
 
-  const handleLikeClick = () => {
-    onLike?.(menu, isLiked)
+  const handleLikeClick = async () => {
+    if (isLikeLoading) return
+
+    setIsLikeLoading(true)
+    try {
+      await onLike?.(menu, isLiked)
+    } finally {
+      setIsLikeLoading(false)
+    }
   }
 
   const restaurant = getRestaurantById(menu.restaurantId)
@@ -155,7 +163,11 @@ export function MenuCard({ menu, rank, onSelect, mode = "budget", isLiked = fals
                 <TooltipTrigger asChild>
                   <button
                     onClick={handleLikeClick}
-                    className="flex h-9 w-9 items-center justify-center rounded-full bg-muted/50 transition-colors hover:bg-muted"
+                    disabled={isLikeLoading}
+                    className={cn(
+                      "flex h-9 w-9 items-center justify-center rounded-full bg-muted/50 transition-colors hover:bg-muted",
+                      isLikeLoading && "opacity-50 cursor-not-allowed",
+                    )}
                   >
                     <Heart
                       className={cn(

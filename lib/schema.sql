@@ -51,6 +51,19 @@ CREATE TABLE liked_meals (
   UNIQUE(user_id, meal_record_id) -- 중복 좋아요 방지
 );
 
+-- Recommendation cache (AI 추천 캐시)
+CREATE TABLE IF NOT EXISTS recommendation_cache (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES app_users(id) ON DELETE CASCADE,
+  mode VARCHAR(50) NOT NULL, -- 'budget', 'healthy', 'quick'
+  status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'completed', 'error'
+  recommendations JSONB,
+  error_message TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP NOT NULL,
+  UNIQUE(user_id, mode)
+);
+
 -- Indexes for better performance
 CREATE INDEX idx_meal_records_user_id ON meal_records(user_id);
 CREATE INDEX idx_meal_records_meal_date ON meal_records(meal_date);
@@ -58,3 +71,5 @@ CREATE INDEX idx_meal_records_user_date ON meal_records(user_id, meal_date DESC)
 CREATE INDEX idx_app_users_nickname ON app_users(nickname);
 CREATE INDEX idx_liked_meals_user_id ON liked_meals(user_id);
 CREATE INDEX idx_liked_meals_meal_record_id ON liked_meals(meal_record_id);
+CREATE INDEX idx_recommendation_cache_user_mode ON recommendation_cache(user_id, mode);
+CREATE INDEX idx_recommendation_cache_expires ON recommendation_cache(expires_at);

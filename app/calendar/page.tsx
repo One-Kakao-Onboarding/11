@@ -5,13 +5,15 @@ import { BottomNav } from "@/components/bottom-nav"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ChevronLeft, ChevronRight, Plus, Flame, Wallet, Heart, List, Calendar, Search, Filter } from "lucide-react"
+import { ChevronLeft, ChevronRight, Plus, Flame, Wallet, Heart, List, Calendar, Search, Filter, X } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import { LoadingScreen } from "@/components/loading-screen"
 import { AuthGuard } from "@/components/auth-guard"
 import { useAuth } from "@/lib/auth-context"
+import { menuItems, type MenuItem } from "@/lib/data"
+import { getLocalDateString } from "@/lib/date-utils"
 
 interface MealRecord {
   id: number
@@ -57,6 +59,11 @@ export default function CalendarPage() {
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [statsRange, setStatsRange] = useState<"week" | "month" | "all">("month")
 
+  // 메뉴 검색 및 선택 상태
+  const [menuSearchQuery, setMenuSearchQuery] = useState("")
+  const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null)
+  const [isSavingMeal, setIsSavingMeal] = useState(false)
+
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
 
@@ -81,6 +88,14 @@ export default function CalendarPage() {
       }
     }
   }, [user, currentDate, viewMode])
+
+  // statsRange가 "all"로 변경되면 전체 데이터 로드
+  useEffect(() => {
+    if (user && statsRange === 'all' && viewMode === 'calendar' && allMeals.length === 0) {
+      console.log('[캘린더] 전체 통계 선택 - 전체 데이터 로드')
+      fetchAllMeals()
+    }
+  }, [user, statsRange, viewMode])
 
   const fetchMeals = async () => {
     if (!user) return
@@ -271,6 +286,8 @@ export default function CalendarPage() {
   const openRecordDialog = (date: Date) => {
     setSelectedDate(date)
     setSelectedMealType(null)
+    setSelectedMenuItem(null)
+    setMenuSearchQuery("")
     setIsDialogOpen(true)
   }
 
@@ -286,18 +303,79 @@ export default function CalendarPage() {
     setSelectedMealType(mealType)
   }
 
-  const handleSaveRecord = () => {
-    if (selectedDate && selectedMealType) {
-      setIsDialogOpen(false)
-      setIsLoading(true)
+  const handleSaveRecord = async () => {
+    if (!selectedDate || !selectedMealType || !selectedMenuItem || !user) {
+      toast({
+        title: "입력 확인",
+        description: "날짜, 식사 종류, 메뉴를 모두 선택해주세요.",
+        variant: "destructive",
+      })
+      return
+    }
 
-      setTimeout(() => {
-        setIsLoading(false)
+    setIsSavingMeal(true)
+    try {
+      // 날짜를 로컬 타임존으로 포맷팅
+      const year = selectedDate.getFullYear()
+      const month = String(selectedDate.getMonth() + 1).padStart(2, '0')
+      const day = String(selectedDate.getDate()).padStart(2, '0')
+      const mealDateStr = `${year}-${month}-${day}`
+
+      console.log(`[캘린더] 저장할 날짜: ${mealDateStr}`)
+
+      const response = await fetch('/api/save-meal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          menuName: selectedMenuItem.name,
+          calories: selectedMenuItem.calories,
+          carbs: selectedMenuItem.carbs,
+          protein: selectedMenuItem.protein,
+          fat: selectedMenuItem.fat,
+          cost: selectedMenuItem.price,
+          mealType: selectedMealType,
+          mealDate: mealDateStr,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (response.ok && result.success) {
         toast({
+          title: "저장 완료",
           description: `${selectedDate.getMonth() + 1}월 ${selectedDate.getDate()}일 ${getMealTypeLabel(selectedMealType)} 식사가 기록되었습니다.`,
         })
+
+        // 상태 초기화
+        setIsDialogOpen(false)
         setSelectedMealType(null)
-      }, 2000)
+        setSelectedMenuItem(null)
+        setMenuSearchQuery("")
+
+        // 식사 목록 새로고침
+        fetchMeals()
+        if (viewMode === 'list') {
+          fetchAllMeals()
+        }
+      } else {
+        toast({
+          title: "저장 실패",
+          description: result.error || "식사 기록 저장에 실패했습니다.",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error('Save meal error:', error)
+      toast({
+        title: "오류",
+        description: "식사 기록 저장 중 오류가 발생했습니다.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSavingMeal(false)
     }
   }
 
@@ -349,6 +427,11 @@ export default function CalendarPage() {
     setDateRangeStart("")
     setDateRangeEnd("")
   }
+
+  // 메뉴 검색 결과 필터링
+  const filteredMenuItems = menuItems.filter(menu =>
+    menu.name.toLowerCase().includes(menuSearchQuery.toLowerCase())
+  ).slice(0, 5) // 최대 5개만 표시
 
   const weeklyStats = {
     avgCalories: statsRangeMeals.length > 0 ? Math.round(
@@ -598,24 +681,22 @@ export default function CalendarPage() {
                 </div>
               </div>
 
-              {statsRange !== "month" && (
-                <div className="pt-3 border-t border-border/50">
-                  <div className="grid grid-cols-3 gap-3 text-center text-xs">
-                    <div>
-                      <p className="text-muted-foreground">총 칼로리</p>
-                      <p className="font-semibold text-foreground">{weeklyStats.totalCalories.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">총 비용</p>
-                      <p className="font-semibold text-teal-600">{weeklyStats.totalCost.toLocaleString()}원</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">총 단백질</p>
-                      <p className="font-semibold text-foreground">{weeklyStats.totalProtein}g</p>
-                    </div>
+              <div className="pt-3 border-t border-border/50">
+                <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                  <div>
+                    <p className="text-muted-foreground">총 칼로리</p>
+                    <p className="font-semibold text-foreground">{weeklyStats.totalCalories.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">총 비용</p>
+                    <p className="font-semibold text-teal-600">{weeklyStats.totalCost.toLocaleString()}원</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">총 단백질</p>
+                    <p className="font-semibold text-foreground">{weeklyStats.totalProtein}g</p>
                   </div>
                 </div>
-              )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -849,12 +930,25 @@ export default function CalendarPage() {
           </>
         )}
 
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog open={isDialogOpen} onOpenChange={(open) => {
+          setIsDialogOpen(open)
+          if (!open) {
+            // 다이얼로그가 닫힐 때 상태 초기화
+            setSelectedMealType(null)
+            setSelectedMenuItem(null)
+            setMenuSearchQuery("")
+          }
+        }}>
           <Card className="border-dashed">
             <CardContent className="py-6 text-center">
               <p className="text-muted-foreground mb-3">오늘 식사를 빠르게 기록하세요</p>
               <DialogTrigger asChild>
-                <Button className="gap-2" onClick={() => setSelectedDate(new Date())}>
+                <Button className="gap-2" onClick={() => {
+                  setSelectedDate(new Date())
+                  setSelectedMealType(null)
+                  setSelectedMenuItem(null)
+                  setMenuSearchQuery("")
+                }}>
                   <Plus className="h-4 w-4" />
                   오늘 식사 기록하기
                 </Button>
@@ -895,26 +989,101 @@ export default function CalendarPage() {
               </div>
 
               {selectedMealType && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">메뉴 검색</label>
-                  <input
-                    type="text"
-                    placeholder="음식 이름을 입력하세요..."
-                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground"
-                  />
-                  <div className="text-xs text-muted-foreground">
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-foreground block mb-2">메뉴 검색</label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="음식 이름을 입력하세요..."
+                        value={menuSearchQuery}
+                        onChange={(e) => setMenuSearchQuery(e.target.value)}
+                        className="w-full pl-10 pr-3 py-2 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 선택된 메뉴 표시 */}
+                  {selectedMenuItem && (
+                    <Card className="bg-primary/5 border-primary/30">
+                      <CardContent className="p-3">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <p className="font-medium text-foreground">{selectedMenuItem.name}</p>
+                            <div className="flex gap-3 text-xs text-muted-foreground mt-1">
+                              <span className="flex items-center gap-1">
+                                <Flame className="h-3 w-3 text-primary" />
+                                {selectedMenuItem.calories}kcal
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Wallet className="h-3 w-3 text-teal-600" />
+                                {selectedMenuItem.price.toLocaleString()}원
+                              </span>
+                            </div>
+                            <div className="flex gap-2 text-xs text-muted-foreground mt-1">
+                              <span>탄 {selectedMenuItem.carbs}g</span>
+                              <span>단 {selectedMenuItem.protein}g</span>
+                              <span>지 {selectedMenuItem.fat}g</span>
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedMenuItem(null)}
+                            className="h-6 w-6 p-0"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* 메뉴 검색 결과 */}
+                  {menuSearchQuery && !selectedMenuItem && (
+                    <div className="max-h-48 overflow-y-auto space-y-1">
+                      {filteredMenuItems.length > 0 ? (
+                        filteredMenuItems.map((menu) => (
+                          <button
+                            key={menu.id}
+                            onClick={() => {
+                              setSelectedMenuItem(menu)
+                              setMenuSearchQuery("")
+                            }}
+                            className="w-full p-3 text-left rounded-lg border border-border hover:bg-muted/50 transition-colors"
+                          >
+                            <p className="font-medium text-sm text-foreground">{menu.name}</p>
+                            <div className="flex gap-3 text-xs text-muted-foreground mt-1">
+                              <span>{menu.calories}kcal</span>
+                              <span>{menu.price.toLocaleString()}원</span>
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                          검색 결과가 없습니다
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="text-xs text-muted-foreground text-center">
                     {selectedDate && (
                       <span>
-                        {selectedDate.getMonth() + 1}월 {selectedDate.getDate()}일 {getMealTypeLabel(selectedMealType)}
-                        에 기록됩니다
+                        {selectedDate.getMonth() + 1}월 {selectedDate.getDate()}일 {getMealTypeLabel(selectedMealType)}에 기록됩니다
                       </span>
                     )}
                   </div>
                 </div>
               )}
 
-              <Button className="w-full" disabled={!selectedDate || !selectedMealType} onClick={handleSaveRecord}>
-                기록 저장하기
+              <Button
+                className="w-full"
+                disabled={!selectedDate || !selectedMealType || !selectedMenuItem || isSavingMeal}
+                onClick={handleSaveRecord}
+              >
+                {isSavingMeal ? "저장 중..." : "기록 저장하기"}
               </Button>
             </div>
           </DialogContent>

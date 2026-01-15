@@ -47,13 +47,14 @@ export default function LoginPage() {
         login(data.user)
         setIsLoading(false) // 로딩 상태 즉시 해제
 
-        // AI 맞춤 추천 즉시 시작 (백그라운드, fire-and-forget)
+        // AI 맞춤 추천 시작 (백그라운드, fire-and-forget)
+        // API 내부에서 Pending 상태 저장 및 중복 호출 방지
         const modes = ['budget', 'healthy', 'quick']
         console.log('🚀 Starting AI recommendations after login...')
 
         modes.forEach((mode, index) => {
           setTimeout(() => {
-            fetch('/api/recommend', {
+            fetch('/api/recommend/start', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -64,8 +65,9 @@ export default function LoginPage() {
               }),
               keepalive: true, // 페이지가 이동해도 요청 계속
             })
-              .then(() => {
-                console.log(`✅ AI recommendation started for ${mode} mode`)
+              .then(response => response.json())
+              .then(result => {
+                console.log(`✅ AI recommendation start triggered for ${mode} mode:`, result.status)
               })
               .catch(error => {
                 console.error(`Failed to start ${mode} mode:`, error)

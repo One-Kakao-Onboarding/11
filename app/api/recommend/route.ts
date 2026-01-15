@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     const currentMode = mode || 'budget'
     console.log(`⏱️ [${currentMode}] Recommendation request started for user ${userId}`)
 
-    // 1. 캐시 조회 (4시간 TTL)
+    // 1. 캐시 조회 (status 포함)
     const cacheResult = await sql`
       SELECT * FROM recommendation_cache
       WHERE user_id = ${userId}
@@ -39,7 +39,18 @@ export async function POST(request: NextRequest) {
       LIMIT 1
     `
 
-    if (cacheResult.length > 0) {
+    // 1-1. Pending 상태 확인 (중복 호출 방지)
+    if (cacheResult.length > 0 && cacheResult[0].status === 'pending') {
+      console.log(`⏳ [${currentMode}] Already generating recommendations for user ${userId}, skipping...`)
+      return NextResponse.json({
+        success: true,
+        status: 'pending',
+        message: '이미 추천을 생성하고 있습니다.',
+      })
+    }
+
+    // 1-2. Completed 상태의 캐시가 있으면 반환
+    if (cacheResult.length > 0 && cacheResult[0].status === 'completed') {
       console.log('✅ Using cached recommendations for user', userId, 'mode', currentMode)
       const cache = cacheResult[0]
 
@@ -89,6 +100,36 @@ export async function POST(request: NextRequest) {
 
     console.log(`🔄 [${currentMode}] Generating new recommendations with Claude AI for user ${userId}`)
     const aiStartTime = Date.now()
+
+    // 2. Pending 상태로 먼저 저장 (TTL 1분) - 중복 호출 방지
+    const pendingExpiresAt = new Date(Date.now() + 60 * 1000) // 1분 후
+    try {
+      await sql`
+        INSERT INTO recommendation_cache (
+          user_id,
+          mode,
+          status,
+          expires_at
+        )
+        VALUES (
+          ${userId},
+          ${currentMode},
+          'pending',
+          ${pendingExpiresAt}
+        )
+        ON CONFLICT (user_id, mode)
+        DO UPDATE SET
+          status = 'pending',
+          created_at = CURRENT_TIMESTAMP,
+          expires_at = ${pendingExpiresAt},
+          recommendations = NULL,
+          error_message = NULL
+      `
+      console.log(`⏳ [${currentMode}] Saved pending status for user ${userId}`)
+    } catch (error) {
+      console.error(`❌ [${currentMode}] Failed to save pending status:`, error)
+      // pending 저장 실패해도 계속 진행
+    }
 
     // 1. 사용자 선호도 조회
     const preferencesResult = await sql`
@@ -248,30 +289,34 @@ ${menusWithRestaurants.map(m => `
     const result = JSON.parse(jsonText)
     const recommendations: RecommendationScore[] = result.recommendations || []
 
-    // 7. 캐시에 저장 (4시간 TTL)
+    // 7. 캐시에 저장 (4시간 TTL, completed 상태)
     const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000) // 4시간 후
 
     await sql`
       INSERT INTO recommendation_cache (
         user_id,
         mode,
+        status,
         recommendations,
         expires_at
       )
       VALUES (
         ${userId},
         ${currentMode},
+        'completed',
         ${sql.json(recommendations)},
         ${expiresAt}
       )
       ON CONFLICT (user_id, mode)
       DO UPDATE SET
+        status = 'completed',
         recommendations = ${sql.json(recommendations)},
         created_at = CURRENT_TIMESTAMP,
-        expires_at = ${expiresAt}
+        expires_at = ${expiresAt},
+        error_message = NULL
     `
 
-    console.log(`💾 [${currentMode}] Cached recommendations for user ${userId}`)
+    console.log(`💾 [${currentMode}] Cached recommendations for user ${userId} (completed)`)
 
     // 8. 상위 3개 메뉴 정보와 함께 반환
     const topMenus = recommendations.slice(0, 3).map(rec => {
@@ -304,6 +349,26 @@ ${menusWithRestaurants.map(m => `
   } catch (error) {
     const errorElapsed = Date.now() - startTime
     console.error(`❌ Recommendation error after ${errorElapsed}ms:`, error)
+
+    // 에러 상태 저장
+    try {
+      const { userId, mode } = await request.json()
+      const currentMode = mode || 'budget'
+      const errorExpiresAt = new Date(Date.now() + 60 * 1000) // 1분 후
+
+      await sql`
+        UPDATE recommendation_cache
+        SET status = 'error',
+            error_message = ${error instanceof Error ? error.message : String(error)},
+            expires_at = ${errorExpiresAt}
+        WHERE user_id = ${userId}
+        AND mode = ${currentMode}
+      `
+      console.log(`❌ Saved error status for user ${userId}, mode ${currentMode}`)
+    } catch (updateError) {
+      console.error('Failed to update error status:', updateError)
+    }
+
     return NextResponse.json(
       { error: '추천 생성 중 오류가 발생했습니다.', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }

@@ -24,6 +24,7 @@ interface AnalysisResult {
   carbs: number
   fat: number
   estimated_price?: number
+  accuracy?: number
   description: string
 }
 
@@ -351,7 +352,9 @@ export default function LensPage() {
             </div>
             <h3 className="text-lg font-bold text-foreground mb-2">음식 사진을 업로드해주세요</h3>
             <p className="text-sm text-muted-foreground max-w-xs">
-              위의 업로드 영역에서 음식 사진을 선택하면 AI가 영양 성분을 분석해드려요
+              위의 업로드 영역에서 음식 사진을 선택하면
+              <br />
+              AI가 영양 성분을 분석해드려요
             </p>
           </div>
         ) : isAnalyzing ? (
@@ -375,6 +378,12 @@ export default function LensPage() {
                 <div className="text-center">
                   <p className="text-2xl font-bold text-foreground">{analysisResult.menu_name}</p>
                   <p className="text-3xl font-bold text-primary">{analysisResult.calories} kcal</p>
+                  {analysisResult.accuracy && (
+                    <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-sm">
+                      <span className="font-medium">정확도</span>
+                      <span className="font-bold">{analysisResult.accuracy}%</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* 영양 성분 도넛 */}
