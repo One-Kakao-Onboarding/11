@@ -8,7 +8,9 @@
       "Bash(npx tsx:*)",
       "Bash(npm run dev)",
       "Bash(tsx scripts/migrate-preferences.ts:*)",
-      "Bash(npm run db:seed-popular:*)"
+      "Bash(npm run db:seed-popular:*)",
+      "Bash(tsx scripts/add-status-column.ts:*)",
+      "Bash(ls:*)"
     ]
   }
 }

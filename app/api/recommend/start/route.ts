@@ -34,26 +34,46 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. 캐시가 없으면 백그라운드로 생성 시작
-    // Next.js API Route의 제약으로 인해, 실제 백그라운드 작업은 클라이언트가 트리거
-    // 여기서는 즉시 응답만 반환
     console.log(`📝 Recommendation generation requested for user ${userId}, mode ${currentMode}`)
 
-    // 백그라운드 생성을 위해 별도 요청 트리거
-    fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/recommend`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ userId, mode: currentMode }),
-    }).catch(error => {
-      console.error('Background recommendation generation error:', error)
-    })
+    // 백그라운드 생성을 위해 별도 요청 트리거 (await로 확실하게 실행)
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ||
+                    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` :
+                    'http://localhost:3000'
 
-    return NextResponse.json({
-      success: true,
-      status: 'generating',
-      message: 'Recommendation generation started',
-    })
+    try {
+      // fetch를 시작하되 응답을 기다리지 않음 (백그라운드 실행)
+      // waitUntil 패턴 대신 Promise를 생성만 하고 즉시 응답 반환
+      const promise = fetch(`${baseUrl}/api/recommend`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId, mode: currentMode }),
+      }).then(response => {
+        if (response.ok) {
+          console.log(`✅ Background recommendation generation started for ${currentMode}`)
+        } else {
+          console.error(`❌ Background recommendation generation failed: ${response.status}`)
+        }
+      }).catch(error => {
+        console.error('Background recommendation generation error:', error)
+      })
+
+      // 즉시 응답 반환 (백그라운드 작업은 계속 실행)
+      return NextResponse.json({
+        success: true,
+        status: 'generating',
+        message: 'Recommendation generation started',
+      })
+    } catch (error) {
+      console.error('Failed to trigger background generation:', error)
+      return NextResponse.json({
+        success: false,
+        status: 'error',
+        message: 'Failed to start recommendation generation',
+      }, { status: 500 })
+    }
 
   } catch (error) {
     console.error('Start recommendation error:', error)

@@ -47,35 +47,7 @@ export default function LoginPage() {
         login(data.user)
         setIsLoading(false) // 로딩 상태 즉시 해제
 
-        // AI 맞춤 추천 시작 (백그라운드, fire-and-forget)
-        // API 내부에서 Pending 상태 저장 및 중복 호출 방지
-        const modes = ['budget', 'healthy', 'quick']
-        console.log('🚀 Starting AI recommendations after login...')
-
-        modes.forEach((mode, index) => {
-          setTimeout(() => {
-            fetch('/api/recommend/start', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                userId: data.user.id,
-                mode,
-              }),
-              keepalive: true, // 페이지가 이동해도 요청 계속
-            })
-              .then(response => response.json())
-              .then(result => {
-                console.log(`✅ AI recommendation start triggered for ${mode} mode:`, result.status)
-              })
-              .catch(error => {
-                console.error(`Failed to start ${mode} mode:`, error)
-              })
-          }, index * 100) // 각 요청을 100ms씩 지연
-        })
-
-        // 홈으로 이동
+        // 홈으로 이동 (홈 페이지에서 자동으로 AI 추천 로드)
         router.push('/')
       } else {
         setError(data.error || '로그인에 실패했습니다.')

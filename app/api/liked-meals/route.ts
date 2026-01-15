@@ -16,13 +16,21 @@ export async function GET(request: NextRequest) {
 
     const likedMeals = await sql`
       SELECT
-        lm.id as like_id,
-        lm.created_at as liked_at,
-        mr.*
-      FROM liked_meals lm
-      INNER JOIN meal_records mr ON lm.meal_record_id = mr.id
-      WHERE lm.user_id = ${userId}
-      ORDER BY lm.created_at DESC
+        id as like_id,
+        user_id,
+        menu_name,
+        calories,
+        carbs,
+        protein,
+        fat,
+        price,
+        delivery_time,
+        restaurant_name,
+        image_url,
+        created_at as liked_at
+      FROM liked_meals
+      WHERE user_id = ${userId}
+      ORDER BY created_at DESC
     `
 
     return NextResponse.json({
@@ -42,11 +50,22 @@ export async function GET(request: NextRequest) {
 // 좋아요 추가
 export async function POST(request: NextRequest) {
   try {
-    const { userId, mealRecordId } = await request.json()
+    const {
+      userId,
+      menuName,
+      calories,
+      carbs,
+      protein,
+      fat,
+      price,
+      deliveryTime,
+      restaurantName,
+      imageUrl
+    } = await request.json()
 
-    if (!userId || !mealRecordId) {
+    if (!userId || !menuName) {
       return NextResponse.json(
-        { error: '사용자 ID와 식사 기록 ID가 필요합니다.' },
+        { error: '사용자 ID와 메뉴명이 필요합니다.' },
         { status: 400 }
       )
     }
@@ -54,7 +73,7 @@ export async function POST(request: NextRequest) {
     // 이미 좋아요했는지 확인
     const existing = await sql`
       SELECT id FROM liked_meals
-      WHERE user_id = ${userId} AND meal_record_id = ${mealRecordId}
+      WHERE user_id = ${userId} AND menu_name = ${menuName}
     `
 
     if (existing.length > 0) {
@@ -65,8 +84,30 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await sql`
-      INSERT INTO liked_meals (user_id, meal_record_id)
-      VALUES (${userId}, ${mealRecordId})
+      INSERT INTO liked_meals (
+        user_id,
+        menu_name,
+        calories,
+        carbs,
+        protein,
+        fat,
+        price,
+        delivery_time,
+        restaurant_name,
+        image_url
+      )
+      VALUES (
+        ${userId},
+        ${menuName},
+        ${calories || null},
+        ${carbs || null},
+        ${protein || null},
+        ${fat || null},
+        ${price || null},
+        ${deliveryTime || null},
+        ${restaurantName || null},
+        ${imageUrl || null}
+      )
       RETURNING *
     `
 
@@ -89,18 +130,18 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
-    const mealRecordId = searchParams.get('mealRecordId')
+    const menuName = searchParams.get('menuName')
 
-    if (!userId || !mealRecordId) {
+    if (!userId || !menuName) {
       return NextResponse.json(
-        { error: '사용자 ID와 식사 기록 ID가 필요합니다.' },
+        { error: '사용자 ID와 메뉴명이 필요합니다.' },
         { status: 400 }
       )
     }
 
     await sql`
       DELETE FROM liked_meals
-      WHERE user_id = ${userId} AND meal_record_id = ${mealRecordId}
+      WHERE user_id = ${userId} AND menu_name = ${menuName}
     `
 
     return NextResponse.json({

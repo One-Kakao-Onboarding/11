@@ -209,16 +209,16 @@ export default function ProfilePage() {
     savePreferences(updatedPreferences)
   }
 
-  const removeLikedMenu = async (mealId: number) => {
+  const removeLikedMenu = async (menuName: string) => {
     if (!user) return
 
     try {
-      const response = await fetch(`/api/liked-meals?userId=${user.id}&mealRecordId=${mealId}`, {
+      const response = await fetch(`/api/liked-meals?userId=${user.id}&menuName=${encodeURIComponent(menuName)}`, {
         method: 'DELETE',
       })
 
       if (response.ok) {
-        setLikedMeals((prev) => prev.filter((m) => m.id !== mealId))
+        setLikedMeals((prev) => prev.filter((m) => m.menu_name !== menuName))
         toast({
           description: "좋아요 목록에서 제거되었습니다.",
         })
@@ -630,7 +630,7 @@ export default function ProfilePage() {
                       <div
                         key={meal.id}
                         className="bg-red-50 dark:bg-red-950/20 rounded-lg p-3 cursor-pointer group hover:bg-red-100 dark:hover:bg-red-950/30 transition-colors relative"
-                        onClick={() => removeLikedMenu(meal.id)}
+                        onClick={() => removeLikedMenu(meal.menu_name)}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
@@ -638,7 +638,7 @@ export default function ProfilePage() {
                             <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                               <span>{meal.calories}kcal</span>
                               <span>•</span>
-                              <span>{new Date(meal.meal_date).toLocaleDateString('ko-KR')}</span>
+                              <span>{new Date(meal.liked_at).toLocaleDateString('ko-KR')}</span>
                             </div>
                           </div>
                           <X className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />

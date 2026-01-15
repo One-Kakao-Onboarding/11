@@ -16,9 +16,13 @@ interface RecommendationScore {
 // Claude API를 사용한 메뉴 추천 (4시간 캐시)
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
+  let userId: number
+  let mode: string
 
   try {
-    const { userId, mode } = await request.json()
+    const body = await request.json()
+    userId = body.userId
+    mode = body.mode
 
     if (!userId) {
       return NextResponse.json(
@@ -30,27 +34,18 @@ export async function POST(request: NextRequest) {
     const currentMode = mode || 'budget'
     console.log(`⏱️ [${currentMode}] Recommendation request started for user ${userId}`)
 
-    // 1. 캐시 조회 (status 포함)
+    // 1. 캐시 조회
     const cacheResult = await sql`
       SELECT * FROM recommendation_cache
       WHERE user_id = ${userId}
       AND mode = ${currentMode}
+      AND status = 'completed'
       AND expires_at > CURRENT_TIMESTAMP
       LIMIT 1
     `
 
-    // 1-1. Pending 상태 확인 (중복 호출 방지)
-    if (cacheResult.length > 0 && cacheResult[0].status === 'pending') {
-      console.log(`⏳ [${currentMode}] Already generating recommendations for user ${userId}, skipping...`)
-      return NextResponse.json({
-        success: true,
-        status: 'pending',
-        message: '이미 추천을 생성하고 있습니다.',
-      })
-    }
-
-    // 1-2. Completed 상태의 캐시가 있으면 반환
-    if (cacheResult.length > 0 && cacheResult[0].status === 'completed') {
+    // 캐시가 있으면 반환
+    if (cacheResult.length > 0) {
       console.log('✅ Using cached recommendations for user', userId, 'mode', currentMode)
       const cache = cacheResult[0]
 
@@ -101,36 +96,6 @@ export async function POST(request: NextRequest) {
     console.log(`🔄 [${currentMode}] Generating new recommendations with Claude AI for user ${userId}`)
     const aiStartTime = Date.now()
 
-    // 2. Pending 상태로 먼저 저장 (TTL 1분) - 중복 호출 방지
-    const pendingExpiresAt = new Date(Date.now() + 60 * 1000) // 1분 후
-    try {
-      await sql`
-        INSERT INTO recommendation_cache (
-          user_id,
-          mode,
-          status,
-          expires_at
-        )
-        VALUES (
-          ${userId},
-          ${currentMode},
-          'pending',
-          ${pendingExpiresAt}
-        )
-        ON CONFLICT (user_id, mode)
-        DO UPDATE SET
-          status = 'pending',
-          created_at = CURRENT_TIMESTAMP,
-          expires_at = ${pendingExpiresAt},
-          recommendations = NULL,
-          error_message = NULL
-      `
-      console.log(`⏳ [${currentMode}] Saved pending status for user ${userId}`)
-    } catch (error) {
-      console.error(`❌ [${currentMode}] Failed to save pending status:`, error)
-      // pending 저장 실패해도 계속 진행
-    }
-
     // 1. 사용자 선호도 조회
     const preferencesResult = await sql`
       SELECT * FROM menu_preferences
@@ -158,11 +123,10 @@ export async function POST(request: NextRequest) {
 
     // 2-1. 좋아요 누른 음식 목록 조회
     const likedMeals = await sql`
-      SELECT mr.menu_name, mr.calories, mr.cost
-      FROM liked_meals lm
-      INNER JOIN meal_records mr ON lm.meal_record_id = mr.id
-      WHERE lm.user_id = ${userId}
-      ORDER BY lm.created_at DESC
+      SELECT menu_name, calories, price as cost
+      FROM liked_meals
+      WHERE user_id = ${userId}
+      ORDER BY created_at DESC
       LIMIT 20
     `
 
@@ -289,8 +253,8 @@ ${menusWithRestaurants.map(m => `
     const result = JSON.parse(jsonText)
     const recommendations: RecommendationScore[] = result.recommendations || []
 
-    // 7. 캐시에 저장 (4시간 TTL, completed 상태)
-    const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000) // 4시간 후
+    // 7. 캐시에 저장 (2시간 TTL)
+    const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000) // 2시간 후
 
     await sql`
       INSERT INTO recommendation_cache (
@@ -350,23 +314,24 @@ ${menusWithRestaurants.map(m => `
     const errorElapsed = Date.now() - startTime
     console.error(`❌ Recommendation error after ${errorElapsed}ms:`, error)
 
-    // 에러 상태 저장
-    try {
-      const { userId, mode } = await request.json()
-      const currentMode = mode || 'budget'
-      const errorExpiresAt = new Date(Date.now() + 60 * 1000) // 1분 후
+    // 에러 상태 저장 (userId와 mode가 이미 정의된 경우에만)
+    if (userId && mode) {
+      try {
+        const currentMode = mode || 'budget'
+        const errorExpiresAt = new Date(Date.now() + 60 * 1000) // 1분 후
 
-      await sql`
-        UPDATE recommendation_cache
-        SET status = 'error',
-            error_message = ${error instanceof Error ? error.message : String(error)},
-            expires_at = ${errorExpiresAt}
-        WHERE user_id = ${userId}
-        AND mode = ${currentMode}
-      `
-      console.log(`❌ Saved error status for user ${userId}, mode ${currentMode}`)
-    } catch (updateError) {
-      console.error('Failed to update error status:', updateError)
+        await sql`
+          UPDATE recommendation_cache
+          SET status = 'error',
+              error_message = ${error instanceof Error ? error.message : String(error)},
+              expires_at = ${errorExpiresAt}
+          WHERE user_id = ${userId}
+          AND mode = ${currentMode}
+        `
+        console.log(`❌ Saved error status for user ${userId}, mode ${currentMode}`)
+      } catch (updateError) {
+        console.error('Failed to update error status:', updateError)
+      }
     }
 
     return NextResponse.json(

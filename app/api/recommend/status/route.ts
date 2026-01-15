@@ -17,9 +17,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 캐시 조회 (status 포함)
+    // 캐시 조회 (status 포함, recommendations 확인)
     const cacheResult = await sql`
-      SELECT id, status, created_at, expires_at, error_message
+      SELECT id, status, created_at, expires_at, error_message, recommendations
       FROM recommendation_cache
       WHERE user_id = ${userId}
       AND mode = ${mode}
@@ -29,12 +29,17 @@ export async function GET(request: NextRequest) {
 
     if (cacheResult.length > 0) {
       const cache = cacheResult[0]
-      console.log(`[API /api/recommend/status] ✅ 캐시 발견 - userId: ${userId}, mode: ${mode}, status: ${cache.status}`)
+
+      // recommendations가 있으면 completed로 간주 (status가 pending이어도)
+      const hasRecommendations = cache.recommendations !== null && cache.recommendations !== undefined
+      const effectiveStatus = hasRecommendations ? 'completed' : cache.status
+
+      console.log(`[API /api/recommend/status] ✅ 캐시 발견 - userId: ${userId}, mode: ${mode}, status: ${cache.status}, hasRecommendations: ${hasRecommendations}, effectiveStatus: ${effectiveStatus}`)
 
       return NextResponse.json({
         success: true,
-        hasCache: cache.status === 'completed',
-        status: cache.status,
+        hasCache: effectiveStatus === 'completed',
+        status: effectiveStatus,
         createdAt: cache.created_at,
         expiresAt: cache.expires_at,
         errorMessage: cache.error_message,

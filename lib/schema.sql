@@ -42,13 +42,21 @@ CREATE TABLE IF NOT EXISTS menu_preferences (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Liked meals (좋아요한 식사 기록)
+-- Liked meals (좋아요한 메뉴 - meal_records와 독립적)
 CREATE TABLE liked_meals (
   id SERIAL PRIMARY KEY,
   user_id INTEGER REFERENCES app_users(id) ON DELETE CASCADE,
-  meal_record_id INTEGER REFERENCES meal_records(id) ON DELETE CASCADE,
+  menu_name VARCHAR(200) NOT NULL,
+  calories INTEGER,
+  carbs INTEGER,
+  protein INTEGER,
+  fat INTEGER,
+  price INTEGER,
+  delivery_time INTEGER,
+  restaurant_name VARCHAR(200),
+  image_url TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(user_id, meal_record_id) -- 중복 좋아요 방지
+  UNIQUE(user_id, menu_name) -- 중복 좋아요 방지
 );
 
 -- Recommendation cache (AI 추천 캐시)
@@ -70,6 +78,6 @@ CREATE INDEX idx_meal_records_meal_date ON meal_records(meal_date);
 CREATE INDEX idx_meal_records_user_date ON meal_records(user_id, meal_date DESC); -- 복합 인덱스로 쿼리 성능 향상
 CREATE INDEX idx_app_users_nickname ON app_users(nickname);
 CREATE INDEX idx_liked_meals_user_id ON liked_meals(user_id);
-CREATE INDEX idx_liked_meals_meal_record_id ON liked_meals(meal_record_id);
+CREATE INDEX idx_liked_meals_user_menu ON liked_meals(user_id, menu_name);
 CREATE INDEX idx_recommendation_cache_user_mode ON recommendation_cache(user_id, mode);
 CREATE INDEX idx_recommendation_cache_expires ON recommendation_cache(expires_at);

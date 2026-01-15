@@ -29,7 +29,7 @@ export interface MoodMode {
 export const moodModes: MoodMode[] = [
   {
     id: "budget",
-    name: "월말 모드",
+    name: "지갑 모드",
     icon: "💰",
     description: "가성비가 최고! 저렴하고 맛있는 메뉴",
     weights: { price: 80, nutrition: 10, delivery: 10 },
