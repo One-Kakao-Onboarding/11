@@ -84,10 +84,9 @@ export default function HomePage() {
       // 좋아요 목록 즉시 로드
       fetchLikedMenus()
 
-      // AI 추천 백그라운드 생성 즉시 시작 (지연 제거)
-      setTimeout(() => {
-        preloadAllModeRecommendations()
-      }, 100) // 100ms만 지연하여 빠르게 시작
+      // AI 추천은 로그인 페이지에서 이미 시작했으므로 여기서는 시작하지 않음
+      // 대신 상태만 확인
+      console.log('✅ User logged in, skipping AI recommendation preload (already started at login)')
     }
   }, [user])
 
