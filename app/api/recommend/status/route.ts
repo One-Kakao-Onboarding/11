@@ -8,6 +8,8 @@ export async function GET(request: NextRequest) {
     const userId = searchParams.get('userId')
     const mode = searchParams.get('mode') || 'budget'
 
+    console.log(`[API /api/recommend/status] 요청 - userId: ${userId}, mode: ${mode}`)
+
     if (!userId) {
       return NextResponse.json(
         { error: '사용자 ID가 필요합니다.' },
@@ -27,6 +29,7 @@ export async function GET(request: NextRequest) {
 
     if (cacheResult.length > 0) {
       const cache = cacheResult[0]
+      console.log(`[API /api/recommend/status] ✅ 캐시 발견 - userId: ${userId}, mode: ${mode}`)
       return NextResponse.json({
         success: true,
         hasCache: true,
@@ -35,6 +38,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    console.log(`[API /api/recommend/status] ❌ 캐시 없음 - userId: ${userId}, mode: ${mode}`)
     return NextResponse.json({
       success: true,
       hasCache: false,

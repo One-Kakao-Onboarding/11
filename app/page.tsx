@@ -35,13 +35,14 @@ export default function HomePage() {
   const [isFromCache, setIsFromCache] = useState(false)
   const [aiRecommendationStatus, setAiRecommendationStatus] = useState<'none' | 'generating' | 'ready'>('none')
   const [showAiRecommendations, setShowAiRecommendations] = useState(false)
-  const [pollIntervalId, setPollIntervalId] = useState<NodeJS.Timeout | null>(null)
   const [isLoadingPopular, setIsLoadingPopular] = useState(false)
   const [recommendationController, setRecommendationController] = useState<AbortController | null>(null)
 
   // 모든 fetch 요청을 관리하는 전역 AbortController
   const globalAbortController = useRef(new AbortController())
   const isMountedRef = useRef(true)
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const pollAttemptsRef = useRef(0)
 
   const handleMenuSelect = (menu: MenuItem) => {
     setSelectedMenu(menu)
@@ -64,8 +65,9 @@ export default function HomePage() {
         recommendationController.abort()
       }
 
-      if (pollIntervalId) {
-        clearInterval(pollIntervalId)
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
       }
 
       // 상태 즉시 리셋 (렌더링 블로킹 방지)
@@ -74,7 +76,7 @@ export default function HomePage() {
     }
 
     return cleanupAllTasks
-  }, [pathname, recommendationController, pollIntervalId])
+  }, [pathname, recommendationController])
 
   useEffect(() => {
     if (user) {
@@ -84,11 +86,54 @@ export default function HomePage() {
       // 좋아요 목록 즉시 로드
       fetchLikedMenus()
 
-      // AI 추천은 로그인 페이지에서 이미 시작했으므로 여기서는 시작하지 않음
-      // 대신 상태만 확인
-      console.log('✅ User logged in, skipping AI recommendation preload (already started at login)')
+      // AI 추천 상태 즉시 확인 (로그인 페이지에서 시작한 추천 확인)
+      console.log('✅ User logged in, checking AI recommendation status...')
+      checkAiRecommendationStatus()
     }
   }, [user])
+
+  // AI 추천 상태 변경 감지 (디버깅용)
+  useEffect(() => {
+    console.log(`🎯 [AI 추천] 상태 변경: ${aiRecommendationStatus}`)
+  }, [aiRecommendationStatus])
+
+  // 모드 변경 시 AI 추천 상태 재확인
+  useEffect(() => {
+    if (user && currentMode) {
+      console.log(`🔄 [AI 추천] 모드 변경됨: ${currentMode.id}`)
+
+      // 기존 폴링 중단
+      if (pollIntervalRef.current) {
+        console.log('🛑 [AI 추천] 기존 폴링 중단')
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
+      pollAttemptsRef.current = 0
+
+      // 상태 초기화 후 재확인
+      setAiRecommendationStatus('none')
+
+      // 짧은 딜레이 후 상태 확인 (상태 초기화가 완료된 후)
+      setTimeout(() => {
+        checkAiRecommendationStatus()
+      }, 100)
+    }
+  }, [currentMode, user])
+
+  // 페이지 포커스 시 상태 재확인 (탭 전환 후 복귀 시)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && user && aiRecommendationStatus === 'generating') {
+        console.log('👀 [AI 추천] 페이지 포커스 - 상태 재확인')
+        checkAiRecommendationStatus()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [user, aiRecommendationStatus])
 
   const preloadAllModeRecommendations = () => {
     if (!user || !isMountedRef.current) return
@@ -140,28 +185,33 @@ export default function HomePage() {
     })
   }
 
+  // 모드 변경 전 값을 저장하기 위한 ref
+  const prevModeRef = useRef<string | null>(null)
+
   useEffect(() => {
-    let currentPollInterval: NodeJS.Timeout | null = null
-
     if (user) {
-      // 모드 변경 시 상태 초기화
-      setShowAiRecommendations(false)
-      setAiRecommendationStatus('none')
+      // 모드가 변경된 경우에만 상태 초기화
+      if (prevModeRef.current !== null && prevModeRef.current !== currentMode.id) {
+        console.log(`🔄 Mode changed from ${prevModeRef.current} to ${currentMode.id}`)
+        setShowAiRecommendations(false)
+        setAiRecommendationStatus('none')
 
-      // 인기 메뉴 즉시 표시
-      fetchPopularMenus()
+        // 인기 메뉴 즉시 표시
+        fetchPopularMenus()
 
-      // AI 추천 상태 확인도 즉시 실행
-      checkAiRecommendationStatus()
+        // AI 추천 상태 확인도 즉시 실행
+        checkAiRecommendationStatus()
+      }
+
+      // 현재 모드 저장
+      prevModeRef.current = currentMode.id
     }
 
     // Cleanup
     return () => {
-      if (currentPollInterval) {
-        clearInterval(currentPollInterval)
-      }
-      if (pollIntervalId) {
-        clearInterval(pollIntervalId)
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
       }
     }
   }, [user, currentMode])
@@ -181,10 +231,96 @@ export default function HomePage() {
     console.log('✅ Popular menus loaded (fixed TOP3)')
   }
 
-  const checkAiRecommendationStatus = () => {
+  const pollForCacheReady = useCallback(() => {
     if (!user || !isMountedRef.current) return
 
-    // 즉시 fetch 실행 (setTimeout 제거)
+    // 이미 폴링 중이면 기존 폴링 중단 후 새로 시작
+    if (pollIntervalRef.current) {
+      console.log('⚠️ [AI 추천] 기존 폴링 중단 후 재시작')
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
+
+    console.log(`🔄 [AI 추천] 폴링 시작 - mode: ${currentMode.id}`)
+    pollAttemptsRef.current = 0
+    const maxAttempts = 120 // 2분 (1초 * 120)
+
+    const checkStatus = () => {
+      if (!isMountedRef.current) {
+        console.log('🛑 [AI 추천] 컴포넌트 언마운트로 폴링 중지')
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        return
+      }
+
+      pollAttemptsRef.current++
+      const attempts = pollAttemptsRef.current
+      console.log(`🔄 [AI 추천] 폴링 시도 ${attempts}/${maxAttempts}`)
+
+      if (attempts > maxAttempts) {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        console.warn(`⚠️ [AI 추천] 타임아웃 (${maxAttempts}초 경과)`)
+        setAiRecommendationStatus('none')
+        return
+      }
+
+      fetch(`/api/recommend/status?userId=${user.id}&mode=${currentMode.id}`, {
+        signal: globalAbortController.current.signal
+      })
+        .then(response => response.json())
+        .then(result => {
+          if (!isMountedRef.current) return
+
+          console.log(`📊 [AI 추천] 폴링 응답 (${attempts}회):`, { hasCache: result.hasCache })
+
+          if (result.hasCache) {
+            console.log(`✅ [AI 추천] 캐시 준비 완료! ready 상태로 전환 (${attempts}초 소요)`)
+
+            // 폴링 중단
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current)
+              pollIntervalRef.current = null
+            }
+
+            // 상태 즉시 업데이트
+            setAiRecommendationStatus(() => {
+              console.log(`📍 [AI 추천] 상태를 'ready'로 변경`)
+              return 'ready'
+            })
+
+            // 확인 로그
+            setTimeout(() => {
+              console.log(`🔍 [AI 추천] 상태 변경 후 1초 경과 - 버튼 활성화 확인`)
+            }, 1000)
+          }
+        })
+        .catch(error => {
+          if (error.name === 'AbortError') {
+            console.log('🛑 [AI 추천] 폴링 요청 취소됨')
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current)
+              pollIntervalRef.current = null
+            }
+            return
+          }
+          console.error('❌ [AI 추천] 폴링 에러:', error)
+        })
+    }
+
+    // setInterval로 정기적으로 체크
+    pollIntervalRef.current = setInterval(checkStatus, 1000)
+  }, [user, currentMode])
+
+  const checkAiRecommendationStatus = useCallback(() => {
+    if (!user || !isMountedRef.current) return
+
+    console.log(`🔍 [AI 추천] 상태 확인 시작 - mode: ${currentMode.id}`)
+
     fetch(`/api/recommend/status?userId=${user.id}&mode=${currentMode.id}`, {
       signal: globalAbortController.current.signal
     })
@@ -192,12 +328,25 @@ export default function HomePage() {
       .then(result => {
         if (!isMountedRef.current) return
 
+        console.log(`📊 [AI 추천] 상태 확인 결과:`, result)
+
         if (result.success) {
           if (result.hasCache) {
             // 캐시가 있으면 즉시 'ready' 상태로
-            setAiRecommendationStatus('ready')
+            console.log(`✅ [AI 추천] 캐시 발견! 즉시 ready 상태로 전환`)
+
+            setAiRecommendationStatus(() => {
+              console.log(`📍 [AI 추천] 상태를 'ready'로 변경 (캐시 존재)`)
+              return 'ready'
+            })
+
+            // 버튼 활성화 확인용 타이머
+            setTimeout(() => {
+              console.log(`🔍 [AI 추천] 캐시 발견 후 1초 경과 - 버튼 상태 확인`)
+            }, 1000)
           } else {
             // 캐시가 없으면 'generating' 상태로
+            console.log(`⏳ [AI 추천] 캐시 없음. generating 상태로 전환 및 폴링 시작`)
             setAiRecommendationStatus('generating')
             // 폴링으로 캐시 생성 완료 대기
             pollForCacheReady()
@@ -209,60 +358,9 @@ export default function HomePage() {
           console.log('Status check request cancelled')
           return
         }
-        console.error('Failed to check AI recommendation status:', error)
+        console.error('❌ [AI 추천] 상태 확인 실패:', error)
       })
-  }
-
-  const pollForCacheReady = () => {
-    if (!user || !isMountedRef.current) return
-
-    let attempts = 0
-    const interval = setInterval(() => {
-      if (!isMountedRef.current) {
-        clearInterval(interval)
-        setPollIntervalId(null)
-        return
-      }
-
-      attempts++
-      if (attempts > 60) { // 60초 (1초 * 60)
-        clearInterval(interval)
-        setPollIntervalId(null)
-        console.warn('⚠️ AI recommendation generation timeout')
-        return
-      }
-
-      // fetch 즉시 실행
-      if (!isMountedRef.current) return
-
-      fetch(`/api/recommend/status?userId=${user.id}&mode=${currentMode.id}`, {
-        signal: globalAbortController.current.signal
-      })
-        .then(response => response.json())
-        .then(result => {
-          if (!isMountedRef.current) return
-
-          if (result.hasCache) {
-            setAiRecommendationStatus('ready')
-            clearInterval(interval)
-            setPollIntervalId(null)
-            console.log(`✅ AI recommendation ready for ${currentMode.id} mode`)
-          }
-        })
-        .catch(error => {
-          if (error.name === 'AbortError') {
-            console.log('Poll request cancelled')
-            clearInterval(interval)
-            setPollIntervalId(null)
-            return
-          }
-          console.error('Poll error:', error)
-        })
-    }, 1000) // 3초 → 1초로 변경 (더 빠른 반응)
-
-    setPollIntervalId(interval)
-  }
-
+  }, [user, currentMode, pollForCacheReady])
 
   const fetchLikedMenus = () => {
     if (!user || !isMountedRef.current) return
@@ -543,7 +641,9 @@ export default function HomePage() {
               aiRecommendationStatus === 'ready'
                 ? 'bg-gradient-to-r from-primary/10 to-primary/5 border-primary/30'
                 : 'bg-gradient-to-r from-blue-50 to-blue-25 border-blue-200'
-            }`}>
+            }`}
+            data-ai-status={aiRecommendationStatus}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
@@ -563,13 +663,17 @@ export default function HomePage() {
                   </p>
                 </div>
                 <Button
-                  onClick={loadAiRecommendations}
+                  onClick={() => {
+                    console.log(`🔘 [AI 추천] 버튼 클릭 - 상태: ${aiRecommendationStatus}`)
+                    loadAiRecommendations()
+                  }}
                   disabled={aiRecommendationStatus !== 'ready'}
                   className={`rounded-xl h-10 px-6 gap-2 ${
                     aiRecommendationStatus === 'ready'
                       ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                       : 'bg-muted text-muted-foreground cursor-not-allowed'
                   }`}
+                  title={`버튼 상태: ${aiRecommendationStatus} - ${aiRecommendationStatus === 'ready' ? '클릭 가능' : '비활성화'}`}
                 >
                   {(aiRecommendationStatus === 'generating' || aiRecommendationStatus === 'none') && (
                     <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />

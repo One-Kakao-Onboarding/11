@@ -54,6 +54,7 @@ CREATE TABLE liked_meals (
 -- Indexes for better performance
 CREATE INDEX idx_meal_records_user_id ON meal_records(user_id);
 CREATE INDEX idx_meal_records_meal_date ON meal_records(meal_date);
+CREATE INDEX idx_meal_records_user_date ON meal_records(user_id, meal_date DESC); -- 복합 인덱스로 쿼리 성능 향상
 CREATE INDEX idx_app_users_nickname ON app_users(nickname);
 CREATE INDEX idx_liked_meals_user_id ON liked_meals(user_id);
 CREATE INDEX idx_liked_meals_meal_record_id ON liked_meals(meal_record_id);

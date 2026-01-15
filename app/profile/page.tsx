@@ -79,6 +79,8 @@ export default function ProfilePage() {
   const [showAddIngredientDialog, setShowAddIngredientDialog] = useState(false)
   const [newCategory, setNewCategory] = useState("")
   const [newIngredient, setNewIngredient] = useState("")
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
+  const [selectedIngredients, setSelectedIngredients] = useState<string[]>([])
 
   const [likedMeals, setLikedMeals] = useState<any[]>([])
   const [isLikedMenuOpen, setIsLikedMenuOpen] = useState(false)
@@ -326,9 +328,26 @@ export default function ProfilePage() {
   }
 
   const handleAddCategory = () => {
-    if (newCategory.trim() && !preferences.favoriteCategories.includes(newCategory.trim())) {
+    // 직접 입력한 카테고리 추가 (쉼표로 구분된 여러 개 지원)
+    const categoriesToAdd = [...selectedCategories]
+    if (newCategory.trim()) {
+      // 쉼표로 분리하고 각 항목을 trim
+      const inputCategories = newCategory
+        .split(',')
+        .map(cat => cat.trim())
+        .filter(cat => cat.length > 0)
+
+      categoriesToAdd.push(...inputCategories)
+    }
+
+    // 이미 추가된 카테고리는 제외
+    const uniqueCategories = categoriesToAdd.filter(
+      (cat) => !preferences.favoriteCategories.includes(cat)
+    )
+
+    if (uniqueCategories.length > 0) {
       const updatedPreferences = {
-        favoriteCategories: [...preferences.favoriteCategories, newCategory.trim()],
+        favoriteCategories: [...preferences.favoriteCategories, ...uniqueCategories],
       }
       setPreferences((prev) => ({
         ...prev,
@@ -336,17 +355,41 @@ export default function ProfilePage() {
       }))
       savePreferences(updatedPreferences)
       setNewCategory("")
+      setSelectedCategories([])
       setShowAddCategoryDialog(false)
       toast({
-        description: "음식 취향이 추가되었습니다.",
+        description: `음식 취향 ${uniqueCategories.length}개가 추가되었습니다.`,
       })
     }
   }
 
+  const toggleCategorySelection = (category: string) => {
+    setSelectedCategories((prev) =>
+      prev.includes(category) ? prev.filter((c) => c !== category) : [...prev, category]
+    )
+  }
+
   const handleAddIngredient = () => {
-    if (newIngredient.trim() && !preferences.dislikedIngredients.includes(newIngredient.trim())) {
+    // 직접 입력한 식재료 추가 (쉼표로 구분된 여러 개 지원)
+    const ingredientsToAdd = [...selectedIngredients]
+    if (newIngredient.trim()) {
+      // 쉼표로 분리하고 각 항목을 trim
+      const inputIngredients = newIngredient
+        .split(',')
+        .map(ing => ing.trim())
+        .filter(ing => ing.length > 0)
+
+      ingredientsToAdd.push(...inputIngredients)
+    }
+
+    // 이미 추가된 식재료는 제외
+    const uniqueIngredients = ingredientsToAdd.filter(
+      (ing) => !preferences.dislikedIngredients.includes(ing)
+    )
+
+    if (uniqueIngredients.length > 0) {
       const updatedPreferences = {
-        dislikedIngredients: [...preferences.dislikedIngredients, newIngredient.trim()],
+        dislikedIngredients: [...preferences.dislikedIngredients, ...uniqueIngredients],
       }
       setPreferences((prev) => ({
         ...prev,
@@ -354,11 +397,18 @@ export default function ProfilePage() {
       }))
       savePreferences(updatedPreferences)
       setNewIngredient("")
+      setSelectedIngredients([])
       setShowAddIngredientDialog(false)
       toast({
-        description: "기피 식재료가 추가되었습니다.",
+        description: `기피 식재료 ${uniqueIngredients.length}개가 추가되었습니다.`,
       })
     }
+  }
+
+  const toggleIngredientSelection = (ingredient: string) => {
+    setSelectedIngredients((prev) =>
+      prev.includes(ingredient) ? prev.filter((i) => i !== ingredient) : [...prev, ingredient]
+    )
   }
 
   const handleLogout = () => {
@@ -716,78 +766,118 @@ export default function ProfilePage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showAddCategoryDialog} onOpenChange={setShowAddCategoryDialog}>
+      <Dialog open={showAddCategoryDialog} onOpenChange={(open) => {
+        setShowAddCategoryDialog(open)
+        if (!open) {
+          setSelectedCategories([])
+          setNewCategory("")
+        }
+      }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>좋아하는 음식 추가</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="category">음식 종류</Label>
+              <Label htmlFor="category">음식 종류 직접 입력 (쉼표로 구분)</Label>
               <Input
                 id="category"
                 type="text"
                 value={newCategory}
                 onChange={(e) => setNewCategory(e.target.value)}
-                placeholder="예: 중식, 양식, 디저트..."
+                placeholder="예: 중식, 양식, 디저트"
                 onKeyDown={(e) => e.key === "Enter" && handleAddCategory()}
               />
+              <p className="text-xs text-muted-foreground">쉼표(,)로 구분하여 여러 개를 한 번에 입력할 수 있어요</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <p className="text-xs text-muted-foreground w-full mb-1">추천 태그:</p>
+              <p className="text-xs text-muted-foreground w-full mb-1">추천 태그 (여러 개 선택 가능):</p>
               {["중식", "양식", "분식", "디저트", "치킨", "피자", "베트남", "태국"].map((tag) => (
                 <Badge
                   key={tag}
-                  variant="outline"
-                  className="cursor-pointer hover:bg-primary/10"
-                  onClick={() => {
-                    setNewCategory(tag)
-                  }}
+                  variant={selectedCategories.includes(tag) ? "default" : "outline"}
+                  className={`cursor-pointer transition-colors ${
+                    selectedCategories.includes(tag)
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-primary/10"
+                  }`}
+                  onClick={() => toggleCategorySelection(tag)}
                 >
                   {tag}
                 </Badge>
               ))}
             </div>
-            <Button onClick={handleAddCategory} className="w-full bg-primary text-primary-foreground">
+            {(selectedCategories.length > 0 || newCategory.trim()) && (
+              <div className="text-xs text-muted-foreground">
+                {selectedCategories.length > 0 && `선택됨: ${selectedCategories.join(", ")}`}
+                {selectedCategories.length > 0 && newCategory.trim() && " + "}
+                {newCategory.trim() && `입력: ${newCategory.split(',').map(c => c.trim()).filter(c => c).join(", ")}`}
+              </div>
+            )}
+            <Button
+              onClick={handleAddCategory}
+              disabled={selectedCategories.length === 0 && !newCategory.trim()}
+              className="w-full bg-primary text-primary-foreground disabled:opacity-50"
+            >
               추가하기
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showAddIngredientDialog} onOpenChange={setShowAddIngredientDialog}>
+      <Dialog open={showAddIngredientDialog} onOpenChange={(open) => {
+        setShowAddIngredientDialog(open)
+        if (!open) {
+          setSelectedIngredients([])
+          setNewIngredient("")
+        }
+      }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>기피 식재료 추가</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="ingredient">식재료</Label>
+              <Label htmlFor="ingredient">식재료 직접 입력 (쉼표로 구분)</Label>
               <Input
                 id="ingredient"
                 type="text"
                 value={newIngredient}
                 onChange={(e) => setNewIngredient(e.target.value)}
-                placeholder="예: 땅콩, 새우, 버섯..."
+                placeholder="예: 땅콩, 새우, 버섯"
                 onKeyDown={(e) => e.key === "Enter" && handleAddIngredient()}
               />
+              <p className="text-xs text-muted-foreground">쉼표(,)로 구분하여 여러 개를 한 번에 입력할 수 있어요</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <p className="text-xs text-muted-foreground w-full mb-1">추천 태그:</p>
+              <p className="text-xs text-muted-foreground w-full mb-1">추천 태그 (여러 개 선택 가능):</p>
               {["땅콩", "새우", "버섯", "양파", "유제품", "글루텐", "해산물", "계란"].map((tag) => (
                 <Badge
                   key={tag}
-                  variant="outline"
-                  className="cursor-pointer hover:bg-destructive/10"
-                  onClick={() => {
-                    setNewIngredient(tag)
-                  }}
+                  variant={selectedIngredients.includes(tag) ? "default" : "outline"}
+                  className={`cursor-pointer transition-colors ${
+                    selectedIngredients.includes(tag)
+                      ? "bg-destructive text-destructive-foreground"
+                      : "hover:bg-destructive/10"
+                  }`}
+                  onClick={() => toggleIngredientSelection(tag)}
                 >
                   {tag}
                 </Badge>
               ))}
             </div>
-            <Button onClick={handleAddIngredient} className="w-full bg-primary text-primary-foreground">
+            {(selectedIngredients.length > 0 || newIngredient.trim()) && (
+              <div className="text-xs text-muted-foreground">
+                {selectedIngredients.length > 0 && `선택됨: ${selectedIngredients.join(", ")}`}
+                {selectedIngredients.length > 0 && newIngredient.trim() && " + "}
+                {newIngredient.trim() && `입력: ${newIngredient.split(',').map(i => i.trim()).filter(i => i).join(", ")}`}
+              </div>
+            )}
+            <Button
+              onClick={handleAddIngredient}
+              disabled={selectedIngredients.length === 0 && !newIngredient.trim()}
+              className="w-full bg-primary text-primary-foreground disabled:opacity-50"
+            >
               추가하기
             </Button>
           </div>

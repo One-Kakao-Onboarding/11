@@ -6,8 +6,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
     const month = searchParams.get('month') // Format: YYYY-MM
-
-    console.log(`[API /api/meals] 요청 - userId: ${userId}, month: ${month}`)
+    const startTime = Date.now()
 
     if (!userId) {
       return NextResponse.json(
@@ -26,8 +25,6 @@ export async function GET(request: NextRequest) {
       const startDateStr = startDate.toISOString().split('T')[0]
       const endDateStr = endDate.toISOString().split('T')[0]
 
-      console.log(`[API /api/meals] 날짜 범위: ${startDateStr} ~ ${endDateStr}`)
-
       meals = await sql`
         SELECT
           id, user_id, menu_name, calories, carbs, protein, fat, cost,
@@ -39,10 +36,10 @@ export async function GET(request: NextRequest) {
         ORDER BY meal_date DESC, created_at DESC
       `
 
-      console.log(`[API /api/meals] ${month} 데이터 ${meals.length}개 조회됨`)
+      const endTime = Date.now()
+      console.log(`[API /api/meals] ${month}: ${meals.length}개 조회 (${endTime - startTime}ms)`)
     } else {
       // Get all meals
-      console.log(`[API /api/meals] 전체 데이터 조회`)
       meals = await sql`
         SELECT
           id, user_id, menu_name, calories, carbs, protein, fat, cost,
@@ -52,15 +49,9 @@ export async function GET(request: NextRequest) {
         ORDER BY meal_date DESC, created_at DESC
         LIMIT 100
       `
-      console.log(`[API /api/meals] 전체 데이터 ${meals.length}개 조회됨`)
-    }
 
-    // 날짜 형식 확인을 위한 로그
-    if (meals.length > 0) {
-      console.log(`[API /api/meals] 첫 번째 데이터 샘플:`, {
-        meal_date: meals[0].meal_date,
-        menu_name: meals[0].menu_name,
-      })
+      const endTime = Date.now()
+      console.log(`[API /api/meals] 전체: ${meals.length}개 조회 (${endTime - startTime}ms)`)
     }
 
     return NextResponse.json({

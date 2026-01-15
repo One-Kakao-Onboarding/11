@@ -65,34 +65,43 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (user) {
-      fetchMeals()
-      fetchAllMeals()
-      fetchLikedMeals()
+      // 캘린더 뷰: 월별 데이터만 로드
+      // 리스트 뷰: 전체 데이터도 로드
+      if (viewMode === 'calendar') {
+        Promise.all([
+          fetchMeals(),
+          fetchLikedMeals()
+        ])
+      } else {
+        Promise.all([
+          fetchMeals(),
+          fetchAllMeals(),
+          fetchLikedMeals()
+        ])
+      }
     }
-  }, [user, currentDate])
+  }, [user, currentDate, viewMode])
 
   const fetchMeals = async () => {
     if (!user) return
 
     try {
-      setIsLoading(true)
       const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`
-      console.log(`[캘린더] 월별 데이터 요청: ${monthStr}`)
+      const startTime = performance.now()
+
       const response = await fetch(`/api/meals?userId=${user.id}&month=${monthStr}`)
       const result = await response.json()
 
-      console.log(`[캘린더] API 응답:`, result)
+      const endTime = performance.now()
+      console.log(`[캘린더] 월별 데이터 로드: ${result.data?.length || 0}개 (${(endTime - startTime).toFixed(0)}ms)`)
 
       if (response.ok && result.success) {
-        console.log(`[캘린더] ${monthStr} 데이터 ${result.data.length}개 로드됨`)
         setMeals(result.data)
       } else {
         console.error(`[캘린더] API 오류:`, result)
       }
     } catch (error) {
       console.error('[캘린더] 데이터 로드 실패:', error)
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -100,14 +109,14 @@ export default function CalendarPage() {
     if (!user) return
 
     try {
-      console.log(`[캘린더] 전체 데이터 요청`)
+      const startTime = performance.now()
       const response = await fetch(`/api/meals?userId=${user.id}`)
       const result = await response.json()
+      const endTime = performance.now()
 
-      console.log(`[캘린더] 전체 데이터 응답:`, result)
+      console.log(`[캘린더] 전체 데이터 로드: ${result.data?.length || 0}개 (${(endTime - startTime).toFixed(0)}ms)`)
 
       if (response.ok && result.success) {
-        console.log(`[캘린더] 전체 데이터 ${result.data.length}개 로드됨`)
         setAllMeals(result.data)
       } else {
         console.error(`[캘린더] 전체 데이터 API 오류:`, result)
@@ -121,8 +130,12 @@ export default function CalendarPage() {
     if (!user) return
 
     try {
+      const startTime = performance.now()
       const response = await fetch(`/api/liked-meals?userId=${user.id}`)
       const result = await response.json()
+      const endTime = performance.now()
+
+      console.log(`[캘린더] 좋아요 데이터 로드: ${result.data?.length || 0}개 (${(endTime - startTime).toFixed(0)}ms)`)
 
       if (response.ok && result.success) {
         const likedIds = new Set(result.data.map((item: any) => item.id))
@@ -200,21 +213,15 @@ export default function CalendarPage() {
     const day = String(date.getDate()).padStart(2, '0')
     const dateStr = `${year}-${month}-${day}`
 
-    console.log(`[캘린더] 날짜 조회: ${dateStr}`)
-    console.log(`[캘린더] 현재 로드된 meals 데이터 수: ${meals.length}`)
-
     const filtered = meals.filter((meal) => {
       // API에서 meal_date는 이제 "YYYY-MM-DD" 문자열로 옴
       const mealDateStr = typeof meal.meal_date === 'string'
         ? meal.meal_date.split("T")[0]  // "2026-01-15" or "2026-01-15T00:00:00.000Z"
         : meal.meal_date
 
-      const matches = mealDateStr === dateStr
-      console.log(`[캘린더] 비교: meal.meal_date=${meal.meal_date}, mealDateStr=${mealDateStr}, dateStr=${dateStr}, 일치=${matches}`)
-      return matches
+      return mealDateStr === dateStr
     })
 
-    console.log(`[캘린더] ${dateStr}에 해당하는 기록 ${filtered.length}개 발견`)
     return filtered
   }
 
@@ -268,9 +275,7 @@ export default function CalendarPage() {
   }
 
   const openDayDetailDialog = (date: Date) => {
-    console.log(`[캘린더] 날짜 다이얼로그 열기: ${date.toISOString().split("T")[0]}`)
     const records = getSortedRecordsForDate(date)
-    console.log(`[캘린더] 정렬된 기록 ${records.length}개:`, records)
     // 기록이 있든 없든 해당 날짜 조회 다이얼로그 열기
     setSelectedDayMeals(records)
     setSelectedDayDate(date)
