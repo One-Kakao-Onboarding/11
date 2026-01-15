@@ -38,6 +38,12 @@ export default function HomePage() {
   const [recommendationController, setRecommendationController] = useState<AbortController | null>(null)
   const [quickRecommendations, setQuickRecommendations] = useState<MenuItem[]>([])
   const [aiRecommendations, setAiRecommendations] = useState<RecommendedMenu[]>([])
+  // 각 모드별 AI 추천 저장
+  const [aiRecommendationsByMode, setAiRecommendationsByMode] = useState<Record<string, RecommendedMenu[]>>({
+    budget: [],
+    healthy: [],
+    quick: []
+  })
 
   // 모든 fetch 요청을 관리하는 전역 AbortController
   const globalAbortController = useRef(new AbortController())
@@ -97,9 +103,12 @@ export default function HomePage() {
       // 좋아요 목록 즉시 로드
       fetchLikedMenus()
 
-      // AI 추천 백그라운드 로드 (캐시가 있으면 바로 반환, 없으면 생성)
-      console.log('✅ User logged in, loading AI recommendations in background...')
-      loadAiRecommendations(false) // 빠른 추천 유지하면서 백그라운드 로드
+      // 3가지 모드 모두에 대해 AI 추천 백그라운드 로드
+      console.log('✅ User logged in, loading AI recommendations for all modes in background...')
+      const modes = ['budget', 'healthy', 'quick']
+      modes.forEach(mode => {
+        loadAiRecommendations(false, mode)
+      })
     }
 
     return () => {
@@ -124,15 +133,22 @@ export default function HomePage() {
         setShowQuickRecommendations(true)
         fetchPopularMenus()
 
-        // AI 추천 백그라운드 로드 (캐시가 있으면 바로 반환)
-        loadAiRecommendations(false) // 빠른 추천 유지하면서 백그라운드 로드
+        // 해당 모드의 캐시된 AI 추천이 있으면 사용, 없으면 로드
+        const cachedRecommendations = aiRecommendationsByMode[currentMode.id]
+        if (cachedRecommendations && cachedRecommendations.length > 0) {
+          console.log(`✅ Using cached AI recommendations for mode: ${currentMode.id}`)
+          setAiRecommendations(cachedRecommendations)
+        } else {
+          console.log(`🔄 Loading AI recommendations for mode: ${currentMode.id}`)
+          loadAiRecommendations(false, currentMode.id)
+        }
       }
 
       // 현재 모드 저장
       prevModeRef.current = currentMode.id
     }
 
-  }, [user, currentMode])
+  }, [user, currentMode, aiRecommendationsByMode])
 
   const fetchPopularMenus = () => {
     if (!isMountedRef.current) return
@@ -181,24 +197,25 @@ export default function HomePage() {
       })
   }
 
-  const loadAiRecommendations = (switchToAi: boolean = false) => {
+  const loadAiRecommendations = (switchToAi: boolean = false, targetMode?: string) => {
     if (!user || !isMountedRef.current) return
 
-    console.log(`🤖 [AI 추천] 로딩 시작 - userId: ${user.id}, mode: ${currentMode.id}, switchToAi: ${switchToAi}`)
+    const mode = targetMode || currentMode.id
+    console.log(`🤖 [AI 추천] 로딩 시작 - userId: ${user.id}, mode: ${mode}, switchToAi: ${switchToAi}`)
 
-    // 이전 요청 취소
-    if (recommendationController) {
-      recommendationController.abort()
-    }
-
-    // switchToAi가 true일 때만 AI 추천으로 전환
+    // switchToAi가 true일 때만 이전 요청 취소 및 로딩 상태 설정
     if (switchToAi) {
+      if (recommendationController) {
+        recommendationController.abort()
+      }
       setShowQuickRecommendations(false)
+      setIsLoadingRecommendations(true)
     }
-    setIsLoadingRecommendations(true)
 
     const controller = new AbortController()
-    setRecommendationController(controller)
+    if (switchToAi) {
+      setRecommendationController(controller)
+    }
     const timeoutId = setTimeout(() => controller.abort(), 30000) // 30초 타임아웃
 
     // API 호출 (캐시가 있으면 즉시 반환, 없으면 생성)
@@ -209,7 +226,7 @@ export default function HomePage() {
       },
       body: JSON.stringify({
         userId: user.id,
-        mode: currentMode.id,
+        mode: mode,
       }),
       signal: controller.signal,
     })
@@ -220,57 +237,79 @@ export default function HomePage() {
       .then(result => {
         if (!isMountedRef.current) return
 
-        setRecommendationController(null)
+        if (switchToAi) {
+          setRecommendationController(null)
+        }
 
         if (result.success) {
-          console.log(`✅ [AI 추천] 로드 완료 - fromCache: ${result.fromCache}`)
+          console.log(`✅ [AI 추천] 로드 완료 - mode: ${mode}, fromCache: ${result.fromCache}`)
 
           const aiData = result.data || []
-          setAiRecommendations(aiData)
-          setRecommendedMenus(aiData)
+
+          // 각 모드별 추천 저장
+          setAiRecommendationsByMode(prev => ({
+            ...prev,
+            [mode]: aiData
+          }))
+
+          // 현재 모드의 추천이라면 aiRecommendations도 업데이트
+          if (mode === currentMode.id) {
+            setAiRecommendations(aiData)
+            if (switchToAi) {
+              setRecommendedMenus(aiData)
+            }
+          }
+
           setIsFromCache(result.fromCache || false)
-          setIsLoadingRecommendations(false)
+          if (switchToAi) {
+            setIsLoadingRecommendations(false)
+          }
 
-          const message = result.fromCache
-            ? "🤖 저장된 AI 추천 메뉴를 불러왔습니다!"
-            : "🤖 새로운 AI 추천 메뉴를 생성했습니다!"
+          // switchToAi가 true일 때만 toast 표시
+          if (switchToAi) {
+            const message = result.fromCache
+              ? "🤖 저장된 AI 추천 메뉴를 불러왔습니다!"
+              : "🤖 새로운 AI 추천 메뉴를 생성했습니다!"
 
-          toast({
-            description: message,
-          })
+            toast({
+              description: message,
+            })
+          }
         } else {
-          console.error('❌ [AI 추천] 로드 실패:', result.error)
-          setIsLoadingRecommendations(false)
+          console.error(`❌ [AI 추천] 로드 실패 - mode: ${mode}:`, result.error)
+          if (switchToAi) {
+            setIsLoadingRecommendations(false)
+          }
 
           // 실패 시: switchToAi가 true였다면 빠른 추천으로 복귀
           if (switchToAi) {
             setShowQuickRecommendations(true)
-          }
 
-          toast({
-            title: "추천 로딩 실패",
-            description: switchToAi ? "빠른 추천을 표시합니다." : "잠시 후 다시 시도해주세요.",
-            variant: "destructive",
-          })
+            toast({
+              title: "추천 로딩 실패",
+              description: "빠른 추천을 표시합니다.",
+              variant: "destructive",
+            })
+          }
         }
       })
       .catch(error => {
         clearTimeout(timeoutId)
-        setRecommendationController(null)
-
-        if (error.name === 'AbortError') {
-          console.warn('⚠️ [AI 추천] 요청 취소 또는 타임아웃')
-        } else {
-          console.error('❌ [AI 추천] 에러:', error)
+        if (switchToAi) {
+          setRecommendationController(null)
         }
 
-        if (isMountedRef.current) {
+        if (error.name === 'AbortError') {
+          console.warn(`⚠️ [AI 추천] 요청 취소 또는 타임아웃 - mode: ${mode}`)
+        } else {
+          console.error(`❌ [AI 추천] 에러 - mode: ${mode}:`, error)
+        }
+
+        if (isMountedRef.current && switchToAi) {
           setIsLoadingRecommendations(false)
 
           // 실패 시: switchToAi가 true였다면 빠른 추천으로 복귀
-          if (switchToAi) {
-            setShowQuickRecommendations(true)
-          }
+          setShowQuickRecommendations(true)
         }
       })
   }
@@ -425,53 +464,62 @@ export default function HomePage() {
           </div>
 
           {/* AI 추천 보기 버튼 (빠른 추천이 표시될 때) */}
-          {showQuickRecommendations && (
-            <div className={`border-2 rounded-2xl p-4 ${
-              aiRecommendations.length > 0
-                ? 'bg-gradient-to-r from-primary/10 to-primary/5 border-primary/30'
-                : 'bg-gradient-to-r from-blue-50 to-blue-25 border-blue-200'
-            }`}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-lg">🤖</span>
-                    <h3 className="font-bold text-foreground">
-                      {aiRecommendations.length > 0
-                        ? 'AI 맞춤 추천도 확인해보세요!'
-                        : 'AI 맞춤 추천 준비 중...'}
-                    </h3>
+          {showQuickRecommendations && (() => {
+            // 3가지 모드 모두 AI 추천이 완료되었는지 확인
+            const allModesReady = aiRecommendationsByMode.budget.length > 0 &&
+                                   aiRecommendationsByMode.healthy.length > 0 &&
+                                   aiRecommendationsByMode.quick.length > 0
+
+            return (
+              <div className={`border-2 rounded-2xl p-4 ${
+                allModesReady
+                  ? 'bg-gradient-to-r from-primary/10 to-primary/5 border-primary/30'
+                  : 'bg-gradient-to-r from-blue-50 to-blue-25 border-blue-200'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-lg">🤖</span>
+                      <h3 className="font-bold text-foreground">
+                        {allModesReady
+                          ? 'AI 맞춤 추천도 확인해보세요!'
+                          : 'AI 맞춤 추천 준비 중...'}
+                      </h3>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {allModesReady
+                        ? '당신의 선호도를 분석한 AI 추천 메뉴'
+                        : isLoadingRecommendations
+                        ? '선호도, 좋아요 목록, 최근 식사를 분석하고 있습니다'
+                        : 'AI가 당신만을 위한 메뉴를 준비하고 있습니다'}
+                    </p>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {aiRecommendations.length > 0
-                      ? '당신의 선호도를 분석한 AI 추천 메뉴'
-                      : isLoadingRecommendations
-                      ? '선호도, 좋아요 목록, 최근 식사를 분석하고 있습니다'
-                      : 'AI가 당신만을 위한 메뉴를 준비하고 있습니다'}
-                  </p>
+                  <Button
+                    onClick={() => {
+                      console.log(`🔘 [AI 추천] 버튼 클릭`)
+                      const currentModeRecommendations = aiRecommendationsByMode[currentMode.id]
+                      setShowQuickRecommendations(false)
+                      setRecommendedMenus(currentModeRecommendations)
+                      setAiRecommendations(currentModeRecommendations)
+                    }}
+                    disabled={!allModesReady}
+                    className={`rounded-xl h-10 px-6 gap-2 ${
+                      allModesReady
+                        ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                        : 'bg-muted text-muted-foreground cursor-not-allowed'
+                    }`}
+                  >
+                    {isLoadingRecommendations && !allModesReady && (
+                      <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    )}
+                    <span className="font-semibold">
+                      {allModesReady ? '보기' : '준비 중'}
+                    </span>
+                  </Button>
                 </div>
-                <Button
-                  onClick={() => {
-                    console.log(`🔘 [AI 추천] 버튼 클릭`)
-                    setShowQuickRecommendations(false)
-                    setRecommendedMenus(aiRecommendations)
-                  }}
-                  disabled={aiRecommendations.length === 0}
-                  className={`rounded-xl h-10 px-6 gap-2 ${
-                    aiRecommendations.length > 0
-                      ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                      : 'bg-muted text-muted-foreground cursor-not-allowed'
-                  }`}
-                >
-                  {isLoadingRecommendations && aiRecommendations.length === 0 && (
-                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  )}
-                  <span className="font-semibold">
-                    {aiRecommendations.length > 0 ? '보기' : '준비 중'}
-                  </span>
-                </Button>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* 빠른 추천 보기 버튼 (AI 추천이 표시될 때) */}
           {!showQuickRecommendations && (

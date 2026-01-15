@@ -57,7 +57,7 @@ export default function CalendarPage() {
   const [dateRangeStart, setDateRangeStart] = useState<string>("")
   const [dateRangeEnd, setDateRangeEnd] = useState<string>("")
   const [isFilterOpen, setIsFilterOpen] = useState(false)
-  const [statsRange, setStatsRange] = useState<"week" | "month" | "all">("month")
+  const [statsRange, setStatsRange] = useState<"week" | "month">("month")
 
   // 메뉴 검색 및 선택 상태
   const [menuSearchQuery, setMenuSearchQuery] = useState("")
@@ -88,14 +88,6 @@ export default function CalendarPage() {
       }
     }
   }, [user, currentDate, viewMode])
-
-  // statsRange가 "all"로 변경되면 전체 데이터 로드
-  useEffect(() => {
-    if (user && statsRange === 'all' && viewMode === 'calendar' && allMeals.length === 0) {
-      console.log('[캘린더] 전체 통계 선택 - 전체 데이터 로드')
-      fetchAllMeals()
-    }
-  }, [user, statsRange, viewMode])
 
   const fetchMeals = async () => {
     if (!user) return
@@ -413,10 +405,8 @@ export default function CalendarPage() {
       const weekAgo = new Date(today)
       weekAgo.setDate(today.getDate() - 7)
       return meals.filter(m => new Date(m.meal_date) >= weekAgo)
-    } else if (statsRange === "month") {
-      return meals
     } else {
-      return allMeals
+      return meals
     }
   }
 
@@ -648,14 +638,6 @@ export default function CalendarPage() {
                   onClick={() => setStatsRange("month")}
                 >
                   월간
-                </Button>
-                <Button
-                  variant={statsRange === "all" ? "default" : "ghost"}
-                  size="sm"
-                  className="h-7 text-xs px-2"
-                  onClick={() => setStatsRange("all")}
-                >
-                  전체
                 </Button>
               </div>
             </div>
