@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm run db:setup:*)",
+      "Bash(psql:*)",
+      "Bash(npx tsx scripts/add-mock-data.ts)",
+      "Bash(npx tsx:*)",
+      "Bash(npm run dev)",
+      "Bash(tsx scripts/migrate-preferences.ts:*)",
+      "Bash(npm run db:seed-popular:*)"
+    ]
+  }
+}
